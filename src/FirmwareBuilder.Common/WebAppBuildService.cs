@@ -4,11 +4,11 @@ public static class WebAppBuildService
 {
     public static void Run(string rootDir, string webDir, string assetsDir)
     {
-        var viteEntry = Path.Combine(rootDir, "node_modules", "vite", "bin", "vite.js");
+        var viteEntry = Path.Combine(webDir, "node_modules", "vite", "bin", "vite.js");
         if (!File.Exists(viteEntry))
         {
             throw new InvalidOperationException(
-                $"Vite nicht gefunden unter {viteEntry} -- zuerst \"npm install\" im Repo-Root ausfuehren.");
+                $"Vite nicht gefunden unter {viteEntry} -- zuerst \"npm install\" im web/-Verzeichnis ausfuehren.");
         }
 
         var viteConfig = Path.Combine(webDir, "vite.config.ts");
