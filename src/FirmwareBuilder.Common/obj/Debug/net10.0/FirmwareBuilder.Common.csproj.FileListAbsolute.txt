@@ -1,0 +1,15 @@
+c:\repos\dotnet_libs\firmware_builder_common\src\FirmwareBuilder.Common\bin\Debug\net10.0\FirmwareBuilder.Common.deps.json
+c:\repos\dotnet_libs\firmware_builder_common\src\FirmwareBuilder.Common\bin\Debug\net10.0\FirmwareBuilder.Common.dll
+c:\repos\dotnet_libs\firmware_builder_common\src\FirmwareBuilder.Common\bin\Debug\net10.0\FirmwareBuilder.Common.pdb
+c:\repos\dotnet_libs\firmware_builder_common\src\FirmwareBuilder.Common\obj\Debug\net10.0\FirmwareBuilder.Common.csproj.AssemblyReference.cache
+c:\repos\dotnet_libs\firmware_builder_common\src\FirmwareBuilder.Common\obj\Debug\net10.0\FirmwareBuilder.Common.GeneratedMSBuildEditorConfig.editorconfig
+c:\repos\dotnet_libs\firmware_builder_common\src\FirmwareBuilder.Common\obj\Debug\net10.0\FirmwareBuilder.Common.AssemblyInfoInputs.cache
+c:\repos\dotnet_libs\firmware_builder_common\src\FirmwareBuilder.Common\obj\Debug\net10.0\FirmwareBuilder.Common.AssemblyInfo.cs
+c:\repos\dotnet_libs\firmware_builder_common\src\FirmwareBuilder.Common\obj\Debug\net10.0\FirmwareBuilder.Common.csproj.CoreCompileInputs.cache
+c:\repos\dotnet_libs\firmware_builder_common\src\FirmwareBuilder.Common\obj\Debug\net10.0\FirmwareBuilder.Common.dll
+c:\repos\dotnet_libs\firmware_builder_common\src\FirmwareBuilder.Common\obj\Debug\net10.0\refint\FirmwareBuilder.Common.dll
+c:\repos\dotnet_libs\firmware_builder_common\src\FirmwareBuilder.Common\obj\Debug\net10.0\FirmwareBuilder.Common.pdb
+c:\repos\dotnet_libs\firmware_builder_common\src\FirmwareBuilder.Common\obj\Debug\net10.0\ref\FirmwareBuilder.Common.dll
+c:\repos\dotnet_libs\firmware_builder_common\src\FirmwareBuilder.Common\bin\Debug\net10.0\BestBinaryBuffers.dll
+c:\repos\dotnet_libs\firmware_builder_common\src\FirmwareBuilder.Common\bin\Debug\net10.0\BestBinaryBuffers.pdb
+c:\repos\dotnet_libs\firmware_builder_common\src\FirmwareBuilder.Common\obj\Debug\net10.0\Firmware.4A19A9EC.Up2Date
