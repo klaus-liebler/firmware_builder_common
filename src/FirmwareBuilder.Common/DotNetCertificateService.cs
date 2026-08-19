@@ -120,7 +120,17 @@ public static class DotNetCertificateService
 
         var notBefore = DateTimeOffset.UtcNow.AddDays(-Math.Abs(options.NotBeforeBackdateDays));
         var notAfter = notBefore.AddDays(ParseCertDays(options.CertDays));
-        using var signedLeaf = request.Create(caCertificate, notBefore, notAfter, RandomPositiveSerialNumber(20));
+        // request.Create(X509Certificate2 issuerCertificate, ...) -- the convenience overload --
+        // throws "the issuer certificate public key algorithm (X) does not match the value for
+        // this certificate request (Y), use the X509SignatureGenerator overload" whenever the CA
+        // and leaf use different key algorithms (confirmed 2026-08-19: this project's shared CA
+        // is RSA-2048, its leaf certificates are EC_P256 by design -- deployed and working, e.g.
+        // the current factory-box-363836 device certificate is exactly this combination). Mixed
+        // RSA-issuer/EC-leaf chains are valid X.509; .NET's convenience overload just can't build
+        // one -- use the X509SignatureGenerator overload it points to instead.
+        using var caPrivateKey = GetPrivateKey(caCertificate);
+        var caSignatureGenerator = CreateSignatureGenerator(caPrivateKey);
+        using var signedLeaf = request.Create(caCertificate.SubjectName, caSignatureGenerator, notBefore, notAfter, RandomPositiveSerialNumber(20));
         using var leafWithPrivateKey = CopyWithPrivateKey(signedLeaf, leafKey);
 
         File.WriteAllText(keyPath, ExportPrivateKeyPem(leafKey));
@@ -133,21 +143,57 @@ public static class DotNetCertificateService
     {
         return kind switch
         {
-            "cert" => X509Certificate2.CreateFromPemFile(pemPath).Export(X509ContentType.Cert),
+            // X509Certificate2.CreateFromPemFile(pemPath) (single-arg, or with keyPemFilePath:
+            // null) throws "the key contents do not contain a PEM ... or the key does not match
+            // the certificate" on this project's EC leaf certificates -- confirmed via an
+            // isolated repro (2026-08-19) that the file itself is a perfectly well-formed,
+            // cert-only PEM (no key section at all); this .NET version's PEM-to-X509Certificate2
+            // loading path apparently still attempts EC key extraction and fails. A certificate
+            // PEM is just base64(DER) with markers though -- no cryptographic/key-matching
+            // operation is needed for a pure format conversion, so skip X509Certificate2's PEM
+            // loader entirely here.
+            "cert" => DecodePemToDer(File.ReadAllText(pemPath)),
             "key" => ReadPrivateKeyPemAsDer(pemPath),
             _ => throw new ArgumentException($"Unbekannter PEM-Typ \"{kind}\". Erlaubt: cert|key."),
         };
     }
 
-    public static PemCertificateInfo ReadCertificateInfo(string certificatePath)
+    // See ConvertPemToDer's "cert" case above for why this doesn't use
+    // X509Certificate2.CreateFromPemFile either.
+    private static byte[] DecodePemToDer(string pemText)
     {
-        using var certificate = X509Certificate2.CreateFromPemFile(certificatePath);
-        return new PemCertificateInfo(
-            certificate.Issuer,
-            new DateTimeOffset(certificate.NotBefore, TimeSpan.Zero).ToUnixTimeSeconds(),
-            new DateTimeOffset(certificate.NotAfter, TimeSpan.Zero).ToUnixTimeSeconds());
+        var fields = PemEncoding.Find(pemText);
+        var der = new byte[fields.DecodedDataLength];
+        Convert.TryFromBase64Chars(pemText.AsSpan(fields.Base64Data), der, out _);
+        return der;
     }
 
+    public static PemCertificateInfo ReadCertificateInfo(string certificatePath)
+    {
+        using var certificate = X509CertificateLoader.LoadCertificate(DecodePemToDer(File.ReadAllText(certificatePath)));
+        // X509Certificate2.NotBefore/NotAfter return DateTime in the LOCAL system timezone
+        // (documented .NET behavior), not UTC -- pairing them with TimeSpan.Zero as if they were
+        // already UTC throws "The UTC Offset of the local dateTime parameter does not match the
+        // offset argument" on any machine whose local offset isn't zero (confirmed 2026-08-19,
+        // Germany/UTC+2). ToUniversalTime() converts correctly based on the DateTime's own Kind.
+        return new PemCertificateInfo(
+            certificate.Issuer,
+            new DateTimeOffset(certificate.NotBefore.ToUniversalTime()).ToUnixTimeSeconds(),
+            new DateTimeOffset(certificate.NotAfter.ToUniversalTime()).ToUnixTimeSeconds());
+    }
+
+    // NX_SECURE_X509_KEY_TYPE_EC_DER (firmware_factory_control_unit's net_setup.cpp) expects the
+    // traditional SEC1/RFC 5915 "ECPrivateKey" DER structure -- confirmed 2026-08-19 by tracing
+    // NetX Secure's own parser (nx_secure_x509_ec_private_key_parse.c): it reads a SEQUENCE whose
+    // first element must be INTEGER(1) (the RFC 5915 version field) directly followed by an OCTET
+    // STRING (the key). PKCS#8 (ExportPkcs8PrivateKey(), the previous code here) wraps the key in
+    // its OWN outer SEQUENCE with version INTEGER(0) and an AlgorithmIdentifier before the actual
+    // key bytes -- NetX Secure's parser reads that outer 0 where it expects 1 and rejects the
+    // whole key with NX_SECURE_PKCS1_INVALID_PRIVATE_KEY (confirmed via an isolated repro
+    // comparing both exports' raw DER bytes). ExportECPrivateKey()/ExportRSAPrivateKey() export
+    // the traditional (PKCS#1-family) format directly instead -- NetX Secure's RSA parser is
+    // likewise literally named nx_secure_x509_pkcs1_rsa_private_key_parse.c, i.e. also PKCS#1,
+    // not PKCS#8, even though this project only actually uses the EC path today.
     private static byte[] ReadPrivateKeyPemAsDer(string privateKeyPath)
     {
         var pem = File.ReadAllText(privateKeyPath);
@@ -156,13 +202,13 @@ public static class DotNetCertificateService
         {
             using var ec = ECDsa.Create();
             ec.ImportFromPem(pem);
-            return ec.ExportPkcs8PrivateKey();
+            return ec.ExportECPrivateKey();
         }
         catch (CryptographicException)
         {
             using var rsa = RSA.Create();
             rsa.ImportFromPem(pem);
-            return rsa.ExportPkcs8PrivateKey();
+            return rsa.ExportRSAPrivateKey();
         }
     }
 
@@ -173,6 +219,26 @@ public static class DotNetCertificateService
             ECDsa ec => ec.ExportPkcs8PrivateKeyPem(),
             RSA rsa => rsa.ExportPkcs8PrivateKeyPem(),
             _ => throw new NotSupportedException($"Nicht unterstuetzter Schluesseltyp: {keyAlgorithm.GetType().Name}"),
+        };
+    }
+
+    // The issuer's key type doesn't have to match the leaf's -- a mixed-algorithm chain (this
+    // project's RSA-2048 CA signing EC_P256 leaves) is valid X.509 and is what's actually
+    // deployed. request.Create(X509Certificate2, ...) can't build one (throws pointing at this
+    // exact overload); GetPrivateKey()/CreateSignatureGenerator() together are the fix.
+    private static AsymmetricAlgorithm GetPrivateKey(X509Certificate2 certificate)
+    {
+        return (AsymmetricAlgorithm?)certificate.GetRSAPrivateKey() ?? certificate.GetECDsaPrivateKey()
+            ?? throw new NotSupportedException($"CA-Zertifikat \"{certificate.Subject}\" hat keinen unterstuetzten privaten Schluessel (RSA/ECDsa) oder keinen privaten Schluessel ueberhaupt.");
+    }
+
+    private static X509SignatureGenerator CreateSignatureGenerator(AsymmetricAlgorithm issuerPrivateKey)
+    {
+        return issuerPrivateKey switch
+        {
+            RSA rsa => X509SignatureGenerator.CreateForRSA(rsa, RSASignaturePadding.Pkcs1),
+            ECDsa ec => X509SignatureGenerator.CreateForECDsa(ec),
+            _ => throw new NotSupportedException($"Nicht unterstuetzter CA-Schluesseltyp: {issuerPrivateKey.GetType().Name}"),
         };
     }
 

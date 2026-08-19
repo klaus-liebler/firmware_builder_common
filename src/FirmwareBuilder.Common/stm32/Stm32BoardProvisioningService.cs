@@ -117,8 +117,10 @@ public static class Stm32BoardProvisioningService
             snapshot.UsbNcmMacBytes,
             snapshot.EthMacBytes));
         File.WriteAllText(Path.Combine(generatedDir, "device-ids.json"), JsonSerializer.Serialize(deviceIds, JsonDefaults.Pretty) + "\n");
+        File.WriteAllText(Path.Combine(generatedDir, "board-variant.json"),
+            JsonSerializer.Serialize(new BoardVariant(snapshot.BoardName), JsonDefaults.Pretty) + "\n");
 
-        Console.WriteLine($"Geschrieben: {generatedDir} (device_ids.hh, device-ids.json)");
+        Console.WriteLine($"Geschrieben: {generatedDir} (device_ids.hh, device-ids.json, board-variant.json)");
     }
 
     private static HardwareIdentitySnapshot ReadHardwareSnapshot(IBoardsDirectoryOptions boardStorage, string boardId)
