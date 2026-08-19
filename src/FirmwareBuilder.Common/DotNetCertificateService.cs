@@ -49,7 +49,9 @@ public static class DotNetCertificateService
         bool force,
         string? ipAddress,
         IReadOnlyList<string> dnsHostnames,
-        string? outputFileBaseName = null)
+        string? outputFileBaseName = null,
+        string? keyAlgorithmOverride = null,
+        string? applicationUri = null)
     {
         var fileBaseName = string.IsNullOrWhiteSpace(outputFileBaseName) ? commonName : outputFileBaseName;
         var keyPath = Path.Combine(boardDir, $"{fileBaseName}.pem.key");
@@ -68,7 +70,14 @@ public static class DotNetCertificateService
 
         Directory.CreateDirectory(boardDir);
 
-        using var leafKey = CreateLeafKeyAlgorithm(options.KeyAlgorithm);
+        // keyAlgorithmOverride lets one board have multiple leaf certs on different algorithms
+        // signed by the same CA (mixed-algorithm chains are valid X.509, see the Create() call
+        // below) -- e.g. this project's OPC UA server needs RSA (SecurityPolicy#Basic256Sha256
+        // mandates it) while the HTTPS webserver is far better off with EC_P256 on hardware
+        // without a PKA (RSA-2048's software modexp is fine for one handshake per long-lived OPC
+        // UA channel, but far too slow for a browser's many short-lived parallel HTTPS
+        // connections per page load -- found via live testing 2026-08-19).
+        using var leafKey = CreateLeafKeyAlgorithm(keyAlgorithmOverride ?? options.KeyAlgorithm);
         var request = CreateCertificateRequest(BuildSubject(options.SubjectPrefix, commonName), leafKey);
 
         request.CertificateExtensions.Add(new X509BasicConstraintsExtension(false, false, 0, false));
@@ -99,6 +108,15 @@ public static class DotNetCertificateService
         if (!string.IsNullOrWhiteSpace(ipAddress))
         {
             sanBuilder.AddIpAddress(System.Net.IPAddress.Parse(ipAddress));
+        }
+        // OPC UA application-instance certificates (Part 6) are expected to carry the server's
+        // ApplicationUri as a URI SAN entry -- without it, strict clients (UAExpert, asyncua) flag
+        // BadCertificateUriInvalid, even though it doesn't block a connection (confirmed via
+        // asyncua's own cert-generation helper doing exactly this, 2026-08-19). Only the OPC UA
+        // leaf cert passes this; the HTTPS leaf has no ApplicationUri concept.
+        if (!string.IsNullOrWhiteSpace(applicationUri))
+        {
+            sanBuilder.AddUri(new Uri(applicationUri));
         }
         foreach (var dns in dnsHostnames)
         {

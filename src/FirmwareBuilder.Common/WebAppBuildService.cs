@@ -13,6 +13,19 @@ public static class WebAppBuildService
 
         var viteConfig = Path.Combine(webDir, "vite.config.ts");
         ProcessRunner.RunInherit("node", [viteEntry, "build", webDir, "--config", viteConfig], webDir);
-        Console.WriteLine($"Web-App gebaut, {Path.Combine(assetsDir, "index.html.br")} geschrieben.");
+
+        var outFile = Path.Combine(assetsDir, "index.html.br");
+        // Vite's own plugin (web/build-tools/vite-plugin-single-file-firmware-asset.ts) writes
+        // directly to this path -- verify it actually landed here instead of trusting silently.
+        // A prior path-depth bug in that plugin wrote to web/build/assets/ instead (one directory
+        // level off), which left THIS path stale for weeks while every log line here kept
+        // claiming success -- confirmed 2026-08-19 while debugging seemingly-inert JS changes.
+        if (!File.Exists(outFile))
+        {
+            throw new InvalidOperationException(
+                $"Web-App-Build hat {outFile} nicht erzeugt -- pruefe den Ausgabepfad in " +
+                "web/build-tools/vite-plugin-single-file-firmware-asset.ts.");
+        }
+        Console.WriteLine($"Web-App gebaut, {outFile} geschrieben ({new FileInfo(outFile).Length} Bytes).");
     }
 }
