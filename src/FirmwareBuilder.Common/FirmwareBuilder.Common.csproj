@@ -15,5 +15,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\best_binary_buffers\src\BestBinaryBuffers\BestBinaryBuffers.csproj" />
+    <ProjectReference Include="..\..\..\universal_register_access\src\UniversalRegisterAccess\UniversalRegisterAccess.csproj" />
   </ItemGroup>
 </Project>
