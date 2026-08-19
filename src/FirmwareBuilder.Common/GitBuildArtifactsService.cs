@@ -142,6 +142,7 @@ public static class GitBuildArtifactsService
             export const GIT_BRANCH = {{TsStringLiteral(info.Branch)}};
             export const GIT_TAG = {{TsStringLiteral(info.Tag)}};
             export const GIT_IS_DIRTY = {{(info.IsDirty ? "true" : "false")}};
+            export const GIT_COMMIT_MESSAGE = {{TsStringLiteral(info.CommitMessage)}};
             export const GIT_COMMIT_DATE_EPOCH = {{info.CommitDateEpoch}};
             export const BUILD_TIMESTAMP_EPOCH = {{info.BuildTimestampEpoch}};
 
