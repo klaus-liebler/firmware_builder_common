@@ -5,6 +5,18 @@ public interface IBoardsDirectoryOptions
     string BoardsDir { get; }
 }
 
+// Gemeinsame Form der projekteigenen appsettings.json-POCO (sensacts BuilderOptions, STM32s
+// BuilderSettings) -- beide binden BoardStorage/Certificates bereits an dieselben geteilten Typen
+// (BoardsDirectoryOptions/CertificateAuthorityOptions), nur die umschliessende Klasse (mit ihren
+// jeweils zusaetzlichen, projektspezifischen Feldern wie NpmPackagesDir oder Stm32Programmer) ist
+// unterschiedlich. Erlaubt AbstractBuildContext, CertsDir/BoardsDir/Certificates einmalig konkret
+// zu implementieren, statt sie in jeder Ableitung ein weiteres Mal ident abzuschreiben.
+public interface IBuilderAppSettings
+{
+    IBoardsDirectoryOptions BoardStorage { get; }
+    ICertificateAuthorityOptions Certificates { get; }
+}
+
 public interface ICertificateAuthorityOptions
 {
     string CertsDir { get; }

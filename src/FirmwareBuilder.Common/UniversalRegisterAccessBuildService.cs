@@ -3,36 +3,30 @@ using UniversalRegisterAccess;
 namespace FirmwareBuilder.Common;
 
 public sealed record UniversalRegisterAccessBuildRequest(
-    IBoardsDirectoryOptions BoardStorage,
-    string BoardIdCacheFile,
     string RootDir,
     string DefaultSchemaDirectory,
     string CoreGeneratedDir,
     string WebGeneratedDir,
-    string? ExplicitBoardId,
     IReadOnlyList<string> Sources);
 
+// Generierte Register-Access-Dateien sind reine, deterministische Ableitung aus Schema-Quellen --
+// gehoeren ins Projekt (Core/generated, web/generated), nicht ins Board-Archiv (s. Projektgedaechtnis
+// "generierte Dateien nur im Projekt, Ausnahmen: Zertifikate/ESP32-Keys/kostenpflichtige Assets").
 public static class UniversalRegisterAccessBuildService
 {
     public static void Run(UniversalRegisterAccessBuildRequest request)
     {
         var files = SourceFileResolver.ResolveFiles(request.RootDir, request.Sources, request.DefaultSchemaDirectory, ".cs");
 
-        var boardId = BoardArchiveContext.ResolveBoardId(request.ExplicitBoardId, request.BoardIdCacheFile);
-        var coreOut = boardId is not null ? BoardArchiveContext.BoardGeneratedDir(request.BoardStorage, boardId) : request.CoreGeneratedDir;
-        var webOut = boardId is not null ? BoardArchiveContext.BoardGeneratedDir(request.BoardStorage, boardId) : request.WebGeneratedDir;
-        Directory.CreateDirectory(coreOut);
-        Directory.CreateDirectory(webOut);
+        Directory.CreateDirectory(request.CoreGeneratedDir);
+        Directory.CreateDirectory(request.WebGeneratedDir);
 
         SchemaCompiler.Compile(files,
-            Path.Combine(coreOut, "modbus_registers_generated.hh"),
-            Path.Combine(webOut, "register-map.ts"),
-            Path.Combine(coreOut, "opcua_registers_generated.hh"));
+            Path.Combine(request.CoreGeneratedDir, "modbus_registers_generated.hh"),
+            Path.Combine(request.WebGeneratedDir, "register-map.ts"),
+            Path.Combine(request.CoreGeneratedDir, "opcua_registers_generated.hh"));
 
         var sourcesLabel = request.Sources.Count > 0 ? string.Join(", ", request.Sources) : request.DefaultSchemaDirectory;
-        Console.WriteLine(boardId is not null
-            ? $"{files.Count} Datei(en) aus {sourcesLabel} -> Board-Archiv ({boardId})"
-            : $"Kein Board-Kontext bekannt -- schreibe Register-Map ({files.Count} Datei(en) aus {sourcesLabel}) " +
-              "direkt nach Core/generated bzw. web/generated (kein Archiv-Eintrag).");
+        Console.WriteLine($"{files.Count} Datei(en) aus {sourcesLabel} -> {request.CoreGeneratedDir} / {request.WebGeneratedDir}");
     }
 }

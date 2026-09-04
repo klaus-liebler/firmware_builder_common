@@ -1,9 +1,17 @@
 namespace FirmwareBuilder.Common;
 
+// vite-Aufruf + Ergebnis-Verifikation ist in beiden Konsumenten (STM32/factory_control_unit,
+// ESP32/sensact_firmware) strukturell identisch (per singleFileFirmwareAssetPlugin auf eine
+// Brotli-komprimierte Single-File-Asset-Datei bauen), aber Konvention (vite-CLI-Flags,
+// Ausgabedateiname) unterscheidet sich je Projekt -- deshalb explizit statt hartkodiert, damit
+// keine der beiden Web-Projekte ihre eigene vite.config.ts/Plugin-Konvention aendern muss.
 public static class WebAppBuildService
 {
-    public static void Run(string rootDir, string webDir, string assetsDir)
+    // Nimmt IBuildContext direkt entgegen -- WebRoot ist bereits Teil des Kontexts; viteArgs/
+    // expectedOutputFile bleiben explizite Parameter (projekteigene vite-Konvention, s.o.).
+    public static void Run(IBuildContext ctx, IReadOnlyList<string> viteArgs, string expectedOutputFile)
     {
+        var webDir = ctx.WebRoot;
         var viteEntry = Path.Combine(webDir, "node_modules", "vite", "bin", "vite.js");
         if (!File.Exists(viteEntry))
         {
@@ -11,21 +19,20 @@ public static class WebAppBuildService
                 $"Vite nicht gefunden unter {viteEntry} -- zuerst \"npm install\" im web/-Verzeichnis ausfuehren.");
         }
 
-        var viteConfig = Path.Combine(webDir, "vite.config.ts");
-        ProcessRunner.RunInherit("node", [viteEntry, "build", webDir, "--config", viteConfig], webDir);
+        ProcessRunner.RunInherit("node", [viteEntry, "build", webDir, .. viteArgs], webDir);
 
-        var outFile = Path.Combine(assetsDir, "index.html.br");
-        // Vite's own plugin (web/build-tools/vite-plugin-single-file-firmware-asset.ts) writes
-        // directly to this path -- verify it actually landed here instead of trusting silently.
-        // A prior path-depth bug in that plugin wrote to web/build/assets/ instead (one directory
-        // level off), which left THIS path stale for weeks while every log line here kept
-        // claiming success -- confirmed 2026-08-19 while debugging seemingly-inert JS changes.
-        if (!File.Exists(outFile))
+        // Vite's eigenes Plugin (vite-plugin-single-file-firmware-asset.ts) schreibt direkt an
+        // diesen Pfad -- verifizieren statt blind vertrauen. Ein frueherer Pfadtiefe-Bug in diesem
+        // Plugin schrieb einmal nach web/build/assets/ statt hierher (eine Verzeichnisebene daneben),
+        // was diesen Pfad wochenlang veraltet liess, waehrend jede Log-Zeile hier trotzdem Erfolg
+        // meldete -- gefunden 2026-08-19 beim Debuggen scheinbar wirkungsloser JS-Aenderungen.
+        if (!File.Exists(expectedOutputFile))
         {
             throw new InvalidOperationException(
-                $"Web-App-Build hat {outFile} nicht erzeugt -- pruefe den Ausgabepfad in " +
-                "web/build-tools/vite-plugin-single-file-firmware-asset.ts.");
+                $"Web-App-Build hat {expectedOutputFile} nicht erzeugt -- pruefe den Ausgabepfad im " +
+                "vite-plugin-single-file-firmware-asset-Plugin bzw. die uebergebenen vite-Argumente.");
         }
-        Console.WriteLine($"Web-App gebaut, {outFile} geschrieben ({new FileInfo(outFile).Length} Bytes).");
+        var size = new FileInfo(expectedOutputFile).Length;
+        Console.WriteLine($"Web-App gebaut, {expectedOutputFile} geschrieben ({size} Bytes = {size / 1024.0:F2} kiB).");
     }
 }

@@ -22,6 +22,11 @@ public sealed record GenerateCertificatesRequest(
 public sealed record GenerateDeviceArtifactsRequest(
     IBoardsDirectoryOptions BoardStorage,
     string BoardIdCacheFile,
+    // Projektverzeichnis, NICHT Board-Archiv -- device_ids.hh/device-ids.json sind deterministisch
+    // aus hardware-identity.json/certificate-info.json abgeleitet, gehoeren also ins Projekt (s.
+    // Projektgedaechtnis "generierte Dateien nur im Projekt"). board_info.json (Board-Archiv-Root)
+    // wird als EINZIGE Ausnahme hierher gespiegelt -- persistenter Zustand, keine Ableitung.
+    string CoreGeneratedDir,
     string? ExplicitBoardId);
 
 public static class Stm32BoardProvisioningService
@@ -118,8 +123,7 @@ public static class Stm32BoardProvisioningService
         var boardId = BoardArchiveContext.RequireBoardId(request.ExplicitBoardId, request.BoardIdCacheFile, "ReadHardwareIds");
         var snapshot = ReadHardwareSnapshot(request.BoardStorage, boardId);
         var certInfo = ReadCertificateInfo(request.BoardStorage, boardId);
-        var generatedDir = BoardArchiveContext.BoardGeneratedDir(request.BoardStorage, boardId);
-        Directory.CreateDirectory(generatedDir);
+        Directory.CreateDirectory(request.CoreGeneratedDir);
 
         var deviceIds = new DeviceIdentity(
             snapshot.Hostname,
@@ -129,16 +133,25 @@ public static class Stm32BoardProvisioningService
             snapshot.BoardName,
             certInfo);
 
-        File.WriteAllText(Path.Combine(generatedDir, "device_ids.hh"), RenderDeviceIdsHh(
+        File.WriteAllText(Path.Combine(request.CoreGeneratedDir, "device_ids.hh"), RenderDeviceIdsHh(
             snapshot.Hostname,
             snapshot.ChipUidWords,
             snapshot.UsbNcmMacBytes,
             snapshot.EthMacBytes));
-        File.WriteAllText(Path.Combine(generatedDir, "device-ids.json"), JsonSerializer.Serialize(deviceIds, JsonDefaults.Pretty) + "\n");
-        File.WriteAllText(Path.Combine(generatedDir, "board-variant.json"),
-            JsonSerializer.Serialize(new BoardVariant(snapshot.BoardName), JsonDefaults.Pretty) + "\n");
+        File.WriteAllText(Path.Combine(request.CoreGeneratedDir, "device-ids.json"), JsonSerializer.Serialize(deviceIds, JsonDefaults.Pretty) + "\n");
 
-        Console.WriteLine($"Geschrieben: {generatedDir} (device_ids.hh, device-ids.json, board-variant.json)");
+        // board_info.json (Board-Archiv-Root) unveraendert ins Projekt spiegeln -- einzige Ausnahme
+        // hier: persistenter Zustand, keine Ableitung, keine eigene schmalere Projektionsdatei mehr
+        // (frueher board-variant.json/BoardVariant). CMakeLists.txt liest boardTypeName direkt aus
+        // dieser Kopie. Existiert board_info.json noch nicht (Board noch nie erfolgreich geflasht),
+        // wird uebersprungen.
+        var boardJsonPath = BoardStateStore.BoardJsonPath(request.BoardStorage, boardId);
+        if (File.Exists(boardJsonPath))
+        {
+            File.Copy(boardJsonPath, Path.Combine(request.CoreGeneratedDir, "board_info.json"), overwrite: true);
+        }
+
+        Console.WriteLine($"Geschrieben: {request.CoreGeneratedDir} (device_ids.hh, device-ids.json, board_info.json)");
     }
 
     private static HardwareIdentitySnapshot ReadHardwareSnapshot(IBoardsDirectoryOptions boardStorage, string boardId)

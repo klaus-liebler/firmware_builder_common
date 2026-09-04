@@ -35,7 +35,7 @@ public static class FlashFirmwarePipelineService
         {
             Console.WriteLine(
                 "Warnung: Kein gitstatus.json im Board-Archiv gefunden (ReadGitStatusAndGenerateFiles nicht gelaufen?) -- " +
-                "kein board.json/flash_events.jsonl-Eintrag.");
+                "kein board_info.json/flash_events.jsonl-Eintrag.");
             return;
         }
 

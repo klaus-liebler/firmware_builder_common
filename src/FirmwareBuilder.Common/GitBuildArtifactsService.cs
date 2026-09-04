@@ -19,44 +19,53 @@ public static class GitBuildArtifactsService
     public static void Generate(GitBuildArtifactsRequest request)
     {
         var info = GitInfoReader.ReadGitInfo(request.RootDir);
-        var boardId = BoardArchiveContext.ResolveBoardId(request.ExplicitBoardId, request.BoardIdCacheFile);
-        var deviceIdentity = boardId is not null ? ReadDeviceIdentity(request.BoardStorage, boardId) : null;
+        // device-ids.json liegt jetzt im Projekt (s. Stm32BoardProvisioningService.
+        // GenerateDeviceArtifacts), nicht mehr im Board-Archiv.
+        var deviceIdentity = ReadDeviceIdentity(request.CoreGeneratedDir);
         var boardName = deviceIdentity?.BoardName ?? request.DefaultBoardTypeName;
 
         var hhContent = RenderGitConstantsHh(info);
         var firmwareConstantsContent = RenderFirmwareConstantsHh(request, boardName);
         var tsContent = RenderBuildInfoTs(info, request, boardName, deviceIdentity);
-        var jsonContent = JsonSerializer.Serialize(info, JsonDefaults.Pretty) + "\n";
 
-        if (boardId is not null)
-        {
-            var dir = BoardArchiveContext.BoardGeneratedDir(request.BoardStorage, boardId);
-            Directory.CreateDirectory(dir);
-            File.WriteAllText(Path.Combine(dir, "gitconstants.hh"), hhContent);
-            File.WriteAllText(Path.Combine(dir, "firmware_constants.hh"), firmwareConstantsContent);
-            File.WriteAllText(Path.Combine(dir, "build-info.ts"), tsContent);
-            File.WriteAllText(Path.Combine(dir, "gitstatus.json"), jsonContent);
-            Console.WriteLine($"Git-Status ({info.CommitHash}, {info.Branch}, dirty={(info.IsDirty ? "true" : "false")}) -> Board-Archiv ({boardId}).");
-            if (deviceIdentity is null)
-            {
-                Console.WriteLine("Warnung: Kein device-ids.json im Board-Archiv gefunden -- Hostname/Chip-UID/MAC in build-info.ts bleiben leer.");
-            }
-
-            return;
-        }
-
-        Console.WriteLine(
-            "Warnung: Kein Board-Kontext bekannt -- schreibe Git-Status direkt nach Core/generated bzw. web/generated (kein Archiv-Eintrag).");
+        // gitconstants.hh/firmware_constants.hh/build-info.ts sind reine Ableitung aus Git-Status +
+        // device-ids.json -- gehoeren ins Projekt (s. Projektgedaechtnis "generierte Dateien nur im
+        // Projekt"), unabhaengig davon, ob ueberhaupt ein Board-Kontext bekannt ist.
         Directory.CreateDirectory(request.CoreGeneratedDir);
         Directory.CreateDirectory(request.WebGeneratedDir);
         File.WriteAllText(Path.Combine(request.CoreGeneratedDir, "gitconstants.hh"), hhContent);
         File.WriteAllText(Path.Combine(request.CoreGeneratedDir, "firmware_constants.hh"), firmwareConstantsContent);
         File.WriteAllText(Path.Combine(request.WebGeneratedDir, "build-info.ts"), tsContent);
+
+        if (deviceIdentity is null)
+        {
+            Console.WriteLine(
+                "Warnung: Kein device-ids.json im Projekt gefunden (GenerateDeviceArtifacts nicht gelaufen?) -- " +
+                "Hostname/Chip-UID/MAC in build-info.ts bleiben leer.");
+        }
+
+        // gitstatus.json bleibt im Board-Archiv (EXCEPTION, kein reines Build-Derivat): wird von
+        // FlashFirmwarePipelineService.RecordSuccessfulFlash spaeter gelesen, um Flash-Ereignisse in
+        // flash_events.jsonl mit dem Git-Stand zum Flash-Zeitpunkt zu korrelieren -- persistenter
+        // Audit-Trail, kein Build-Output.
+        var boardId = BoardArchiveContext.ResolveBoardId(request.ExplicitBoardId, request.BoardIdCacheFile);
+        if (boardId is not null)
+        {
+            var archiveDir = BoardArchiveContext.BoardGeneratedDir(request.BoardStorage, boardId);
+            Directory.CreateDirectory(archiveDir);
+            File.WriteAllText(Path.Combine(archiveDir, "gitstatus.json"), JsonSerializer.Serialize(info, JsonDefaults.Pretty) + "\n");
+        }
+        else
+        {
+            Console.WriteLine("Warnung: Kein Board-Kontext bekannt -- gitstatus.json wird nicht geschrieben (kein Flash-Event-Abgleich moeglich).");
+        }
+
+        Console.WriteLine($"Git-Status ({info.CommitHash}, {info.Branch}, dirty={(info.IsDirty ? "true" : "false")}) -> {request.CoreGeneratedDir} / {request.WebGeneratedDir}.");
     }
 
-    private static DeviceIdentity? ReadDeviceIdentity(IBoardsDirectoryOptions boardStorage, string boardId)
+    private static DeviceIdentity? ReadDeviceIdentity(string coreGeneratedDir)
     {
-        var jsonPath = Path.Combine(BoardArchiveContext.BoardGeneratedDir(boardStorage, boardId), "device-ids.json");
+        var jsonPath = Path.Combine(coreGeneratedDir, "device-ids.json");
         if (!File.Exists(jsonPath))
         {
             return null;
