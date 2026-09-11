@@ -54,13 +54,16 @@ public static class NpmProject
             return;
         }
 
-        var processStartInfo = new ProcessStartInfo("npm.cmd", "install")
+        var (nodeExe, npmCliJs) = ResolveNpmInvocation();
+        var processStartInfo = new ProcessStartInfo(nodeExe)
         {
             WorkingDirectory = projectRoot,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
         };
+        processStartInfo.ArgumentList.Add(npmCliJs);
+        processStartInfo.ArgumentList.Add("install");
 
         Console.WriteLine($"Fuehre \"npm install\" in {projectRoot} aus...");
         using var process = Process.Start(processStartInfo)!;
@@ -77,5 +80,34 @@ public static class NpmProject
         {
             throw new InvalidOperationException($"npm install in {projectRoot} fehlgeschlagen (Exit {process.ExitCode}):\n{standardError}");
         }
+    }
+
+    // npm.cmd bestimmt seinen eigenen Installationsordner (%~dp0) ueber eine verschachtelte
+    // "FOR /F .. IN ('CALL node npm-prefix.js')"-Konstruktion. Mit RedirectStandardOutput/-Error
+    // (wie oben, um npm-Output einzusammeln) loest diese verschachtelte Ausgabe-Erfassung
+    // reproduzierbar falsch auf -- %~dp0 landet beim WorkingDirectory (hier: dem frisch erzeugten
+    // Projektordner) statt bei der echten npm-Installation, wodurch npm-prefix.js/npm-cli.js dort
+    // gesucht werden, wo sie nie liegen. Direkter Aufruf von node.exe mit dem aufgeloesten
+    // npm-cli.js-Pfad umgeht den kaputten Shim komplett.
+    private static (string NodeExe, string NpmCliJs) ResolveNpmInvocation()
+    {
+        var pathVar = Environment.GetEnvironmentVariable("PATH") ?? "";
+        foreach (var dir in pathVar.Split(Path.PathSeparator))
+        {
+            if (string.IsNullOrWhiteSpace(dir))
+            {
+                continue;
+            }
+
+            var nodeExe = Path.Combine(dir, "node.exe");
+            var npmCliJs = Path.Combine(dir, "node_modules", "npm", "bin", "npm-cli.js");
+            if (File.Exists(nodeExe) && File.Exists(npmCliJs))
+            {
+                return (nodeExe, npmCliJs);
+            }
+        }
+
+        throw new InvalidOperationException(
+            "Konnte node.exe mit zugehoerigem node_modules/npm/bin/npm-cli.js nicht auf PATH finden.");
     }
 }
