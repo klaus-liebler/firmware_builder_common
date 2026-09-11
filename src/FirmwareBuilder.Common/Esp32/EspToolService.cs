@@ -19,9 +19,14 @@ public static class EspToolService
         return new Esp32HardwareIds(chipType, mac, hasEncryptionKey);
     }
 
+    // esptool nutzt ohne "--baud" eine konservative Standardrate. 921600 ist die ueblich empfohlene
+    // "schnelle" Baudrate (s. idf.py-Standardvorgabe -b 921600) und wird von der USB/UART-Bruecke
+    // jedes esp32s3-Boards hier unterstuetzt -- deutlich kuerzere Flash-Zeiten ohne Zusatzrisiko.
+    private const string FastBaudRate = "921600";
+
     public static void WriteFlash(IReadOnlyList<(string Offset, string File)> sections, string workingDirectory)
     {
-        List<string> args = ["write-flash", "--flash-size", "keep"];
+        List<string> args = ["--baud", FastBaudRate, "write-flash", "--flash-size", "keep"];
         foreach (var (offset, file) in sections)
         {
             args.Add(offset);
@@ -33,7 +38,7 @@ public static class EspToolService
 
     public static void EraseRegion(string offset, long size, string workingDirectory)
     {
-        ProcessRunner.RunInherit("esptool", ["erase-region", offset, $"0x{size:X}"], workingDirectory);
+        ProcessRunner.RunInherit("esptool", ["--baud", FastBaudRate, "erase-region", offset, $"0x{size:X}"], workingDirectory);
     }
 
     private static (string ChipType, long Mac, string Port) ReadMacAndChipType(string workingDirectory)

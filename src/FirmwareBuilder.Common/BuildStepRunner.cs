@@ -100,6 +100,8 @@ public static class BuildStepRunner
             sw.Stop();
             WriteBlocks(ConsoleColor.Green);
             Console.WriteLine($" Success for step {stepName} at {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss}, took {FormatDuration(sw.Elapsed)}");
+            WriteFullLine(ConsoleColor.Green);
+            Console.WriteLine();
         }
         catch (Exception ex)
         {
@@ -117,6 +119,30 @@ public static class BuildStepRunner
         Console.Write(new string('█', 5));
         Console.ForegroundColor = previous;
         Console.Write(' ');
+    }
+
+    // Volle Trennzeile nach einer erfolgreichen Stufe, damit aufeinanderfolgende Pipeline-Schritte
+    // (viele kurze Konsolenblöcke) beim Ueberfliegen des Logs klar auseinanderfallen.
+    private static void WriteFullLine(ConsoleColor color)
+    {
+        int width;
+        try
+        {
+            width = Console.IsOutputRedirected ? 80 : Console.WindowWidth;
+        }
+        catch
+        {
+            width = 80;
+        }
+        if (width <= 0)
+        {
+            width = 80;
+        }
+
+        var previous = Console.ForegroundColor;
+        Console.ForegroundColor = color;
+        Console.WriteLine(new string('─', width));
+        Console.ForegroundColor = previous;
     }
 
     private static string FormatDuration(TimeSpan elapsed) =>
