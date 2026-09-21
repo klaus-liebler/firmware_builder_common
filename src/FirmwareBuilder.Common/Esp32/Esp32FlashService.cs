@@ -23,8 +23,11 @@ public static class Esp32FlashService
             (f.Bootloader.Offset, Path.Combine(ctx.BuildDir, f.Bootloader.File)),
             (f.App.Offset, Path.Combine(ctx.BuildDir, f.App.File)),
             (f.PartitionTable.Offset, Path.Combine(ctx.BuildDir, f.PartitionTable.File)),
-            (f.Otadata.Offset, Path.Combine(ctx.BuildDir, f.Otadata.File)),
         ];
+        if (f.Otadata is not null)
+        {
+            sections.Add((f.Otadata.Offset, Path.Combine(ctx.BuildDir, f.Otadata.File)));
+        }
         if (writeStorage && f.Storage is not null)
         {
             sections.Add((f.Storage.Offset, Path.Combine(ctx.BuildDir, f.Storage.File)));

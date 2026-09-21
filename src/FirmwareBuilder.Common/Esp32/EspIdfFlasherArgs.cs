@@ -23,8 +23,10 @@ public sealed class EspIdfFlasherArgs
     [JsonPropertyName("partition-table")]
     public required FlashSection PartitionTable { get; init; }
 
+    // Optional: Projekte ohne OTA-Partitionen (z.B. labathome auf dem klassischen ESP32 mit nur
+    // factory + storage) haben keinen otadata-Eintrag in flasher_args.json.
     [JsonPropertyName("otadata")]
-    public required FlashSection Otadata { get; init; }
+    public FlashSection? Otadata { get; init; }
 
     [JsonPropertyName("storage")]
     public FlashSection? Storage { get; init; }
