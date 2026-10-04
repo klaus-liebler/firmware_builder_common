@@ -1,7 +1,7 @@
-namespace FirmwareBuilder.Common;
+namespace FirmwareBuilder.Common.Stm32;
 
 // Zentralisiert (vorher projekt-lokal in firmware_factory_control_unit/builder/BuilderSettings.cs) --
-// STM32-spezifisch, aber unter dem gemeinsamen stm32/-Zweig, analog zu Stm32HardwareIdentityService etc.
+// STM32-spezifisch, aber unter dem gemeinsamen Stm32/-Zweig, analog zu Stm32HardwareIdentityService etc.
 public sealed class Stm32ProgrammerOptions : IStm32ProgrammerOptions
 {
     public string Stm32ProgrammerCli { get; set; } = "";

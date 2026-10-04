@@ -4,7 +4,7 @@ namespace FirmwareBuilder.Common.Esp32;
 // ESP-IDF-Toolchain selbst (IdfPath) und das von ihr erzeugte Build-Verzeichnis.
 public interface IBuildContextEsp32 : IBuildContext
 {
-    // Die MAC-Adresse ist ab jetzt IBuildContext.ChipId (s. ChipId.ToEsp32Mac48()) -- kein
+    // Die MAC-Adresse ist ab jetzt IBuildContext.ChipId (s. ChipIdEsp32.ToEsp32Mac48()) -- kein
     // separat gespeichertes long-Feld mehr.
 
     // Validierter IDF_PATH (wirft mit einer klaren Meldung, falls die Umgebungsvariable fehlt oder

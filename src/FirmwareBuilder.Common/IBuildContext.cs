@@ -1,7 +1,7 @@
 namespace FirmwareBuilder.Common;
 
 // Der einzige Parametertyp, den [BuildStep]-Methoden entgegennehmen (bzw. IBuildContextEsp32/
-// IBuildContextStm32 fuer Chip-Spezifika, s. Esp32/IBuildContextEsp32.cs, stm32/IBuildContextStm32.cs).
+// IBuildContextStm32 fuer Chip-Spezifika, s. Esp32/IBuildContextEsp32.cs, Stm32/IBuildContextStm32.cs).
 // Traegt alles, was in praktisch jedem Embedded-Projekt dieser Art gebraucht wird -- ersetzt die
 // vormalige Wucherung aus projekteigenen BoardContext/IBoardInfo-Typen (sensact) bzw. acht
 // einzelnen *Request-Records + Fabrikfunktionen (STM32-Referenzprojekt).
@@ -12,6 +12,12 @@ public interface IBuildContext
     string WebRoot { get; }
     string CertsDir { get; }
     string BoardsDir { get; }
+
+    // Dieselbe Board-Storage-Konfiguration wie BoardsDir, aber als Objekt statt als bereits
+    // aufgeloester Pfad -- gebraucht von BoardArchiveContext/BoardStateStore-Aufrufen, die mehr als
+    // nur den Pfad brauchen (z.B. BoardStateStore.RecordSuccessfulFlash). Ersetzt das vormals in
+    // jedem Provisioning-Request von Hand mitgefuehrte "IBoardsDirectoryOptions BoardStorage"-Feld.
+    IBoardsDirectoryOptions BoardStorage { get; }
 
     // Repo-Root-Cache-Konvention: Pfad zu einer optionalen, projektweiten Kopie des zuletzt
     // bekannten Board-Records (Inhalt/Nutzung ist Sache der jeweiligen Implementierung, z.B.
@@ -37,8 +43,8 @@ public interface IBuildContext
     string BoardUid { get; }
 
     // Rohe Chip-Identitaet (MAC bei ESP32, Unique-ID bei STM32) als gemeinsamer, chip-unabhaengiger
-    // Speichertyp -- s. ChipId. ESP32-Implementierungen liefern ChipId.FromEsp32Mac48(mac),
-    // STM32-Implementierungen ChipId.FromStm32Words(uidWords).
+    // Speichertyp -- s. ChipId. ESP32-Implementierungen liefern Esp32.ChipIdEsp32.FromEsp32Mac48(mac),
+    // STM32-Implementierungen ChipIdStm32.FromStm32Words(uidWords)/FromChipUidHex(hex).
     ChipId ChipId { get; }
 
     GitInfo Git { get; }

@@ -23,7 +23,8 @@ public static class Esp32BoardProvisioningService
         Console.WriteLine("            MAC: " + BoardPaths.Mac6Char(hw.Mac) + " (decimal: " + hw.Mac + ")");
         Console.WriteLine("Flash-Encryption-Key vorhanden: " + (hw.HasFlashEncryptionKey ? "yes" : "no"));
 
-        var boardDir = BoardPaths.BoardSpecificPath(ctx.BoardsDir, hw.Mac);
+        var boardId = ChipIdEsp32.FromEsp32Mac48(hw.Mac).ToBoardUid();
+        var boardDir = BoardArchiveContext.BoardArchiveDir(ctx.BoardStorage, boardId);
         var wasKnown = Directory.Exists(boardDir);
         var recordPath = Path.Combine(boardDir, fileName);
 

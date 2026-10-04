@@ -1,33 +1,6 @@
 using System.Text.Json;
 
-namespace FirmwareBuilder.Common;
-
-public sealed record ReadHardwareIdsRequest(
-    IBoardsDirectoryOptions BoardStorage,
-    IStm32ProgrammerOptions Stm32Programmer,
-    string BuildDir,
-    string BoardIdCacheFile,
-    string RootDir,
-    string DefaultBoardTypeName,
-    Func<string, string?>? ResolveBoardTypeNameByBoardId = null);
-
-public sealed record GenerateCertificatesRequest(
-    IBoardsDirectoryOptions BoardStorage,
-    ICertificateAuthorityOptions Certificates,
-    string BoardIdCacheFile,
-    string RootDir,
-    string? ExplicitBoardId,
-    bool Force);
-
-public sealed record GenerateDeviceArtifactsRequest(
-    IBoardsDirectoryOptions BoardStorage,
-    string BoardIdCacheFile,
-    // Projektverzeichnis, NICHT Board-Archiv -- device_ids.hh/device-ids.json sind deterministisch
-    // aus hardware-identity.json/certificate-info.json abgeleitet, gehoeren also ins Projekt (s.
-    // Projektgedaechtnis "generierte Dateien nur im Projekt"). board_info.json (Board-Archiv-Root)
-    // wird als EINZIGE Ausnahme hierher gespiegelt -- persistenter Zustand, keine Ableitung.
-    string CoreGeneratedDir,
-    string? ExplicitBoardId);
+namespace FirmwareBuilder.Common.Stm32;
 
 public static class Stm32BoardProvisioningService
 {
@@ -37,20 +10,23 @@ public static class Stm32BoardProvisioningService
     private static string CertificateInfoPath(IBoardsDirectoryOptions boardStorage, string boardId) =>
         Path.Combine(BoardArchiveContext.BoardGeneratedDir(boardStorage, boardId), "certificate-info.json");
 
-    public static HardwareIdsResult ReadHardwareIds(ReadHardwareIdsRequest request)
+    // defaultBoardTypeName/resolveBoardTypeNameByBoardId bleiben explizite Parameter (nicht Teil von
+    // ctx) -- an dieser Stelle ist die Board-Identitaet noch nicht bekannt (das ist ja der Zweck
+    // dieser Methode), ctx.BoardTypeName waere hier noch gar nicht aufloesbar.
+    public static HardwareIdsResult ReadHardwareIds(IBuildContextStm32 ctx, string defaultBoardTypeName, Func<string, string?>? resolveBoardTypeNameByBoardId = null)
     {
         Console.WriteLine("Lese Chip-ID vom angeschlossenen Board...");
 
-        var uid = Stm32HardwareIdentityService.ReadUniqueId(request.Stm32Programmer, request.RootDir);
+        var uid = Stm32HardwareIdentityService.ReadUniqueId(ctx.Stm32Programmer, ctx.RootDir);
         var hw = Stm32HardwareIdentityService.BuildIdentity(uid);
-        var boardName = request.ResolveBoardTypeNameByBoardId?.Invoke(hw.BoardId) ?? request.DefaultBoardTypeName;
+        var boardName = resolveBoardTypeNameByBoardId?.Invoke(hw.BoardId) ?? defaultBoardTypeName;
 
         Console.WriteLine(
             $"Chip-ID: {hw.ChipUid} -> Hostname: {hw.Hostname}, Board-Type: {boardName}, USB-NCM-MAC: {string.Join(":", hw.UsbNcmMac.Select(Stm32HardwareIdentityService.ToHex2))}, " +
             $"Ethernet-MAC: {string.Join(":", hw.EthMac.Select(Stm32HardwareIdentityService.ToHex2))}");
 
-        var boardDir = BoardArchiveContext.BoardArchiveDir(request.BoardStorage, hw.BoardId);
-        var generatedDir = BoardArchiveContext.BoardGeneratedDir(request.BoardStorage, hw.BoardId);
+        var boardDir = BoardArchiveContext.BoardArchiveDir(ctx.BoardStorage, hw.BoardId);
+        var generatedDir = BoardArchiveContext.BoardGeneratedDir(ctx.BoardStorage, hw.BoardId);
         Directory.CreateDirectory(boardDir);
         Directory.CreateDirectory(generatedDir);
 
@@ -62,22 +38,30 @@ public static class Stm32BoardProvisioningService
             EthMacBytes: hw.EthMac,
             BoardName: boardName);
 
-        File.WriteAllText(HardwareIdentitySnapshotPath(request.BoardStorage, hw.BoardId), JsonSerializer.Serialize(snapshot, JsonDefaults.Pretty) + "\n");
-        BoardArchiveContext.WriteCachedBoardId(request.BuildDir, request.BoardIdCacheFile, hw.BoardId);
+        File.WriteAllText(HardwareIdentitySnapshotPath(ctx.BoardStorage, hw.BoardId), JsonSerializer.Serialize(snapshot, JsonDefaults.Pretty) + "\n");
+        BoardArchiveContext.WriteCachedBoardId(ctx.BuildDir, ctx.BoardIdCacheFile, hw.BoardId);
 
-        Console.WriteLine($"Geschrieben: {HardwareIdentitySnapshotPath(request.BoardStorage, hw.BoardId)}");
+        Console.WriteLine($"Geschrieben: {HardwareIdentitySnapshotPath(ctx.BoardStorage, hw.BoardId)}");
         return new HardwareIdsResult(hw.BoardId, hw.Hostname, hw.ChipUid);
     }
 
-    public static void GenerateCertificates(GenerateCertificatesRequest request)
+    public static void GenerateCertificates(IBuildContextStm32 ctx, bool force)
     {
-        var boardId = BoardArchiveContext.RequireBoardId(request.ExplicitBoardId, request.BoardIdCacheFile, "ReadHardwareIds");
-        var snapshot = ReadHardwareSnapshot(request.BoardStorage, boardId);
-        var boardDir = BoardArchiveContext.BoardArchiveDir(request.BoardStorage, boardId);
-        var generatedDir = BoardArchiveContext.BoardGeneratedDir(request.BoardStorage, boardId);
+        var boardId = ctx.BoardUid;
+        var snapshot = ReadHardwareSnapshot(ctx.BoardStorage, boardId);
+        var boardDir = BoardArchiveContext.BoardArchiveDir(ctx.BoardStorage, boardId);
+        var generatedDir = BoardArchiveContext.BoardGeneratedDir(ctx.BoardStorage, boardId);
         Directory.CreateDirectory(boardDir);
         Directory.CreateDirectory(generatedDir);
-        var dnsHostnames = ResolveSanDnsEntries(request.Certificates.SanDnsEntries, snapshot.Hostname);
+
+        // Lazy wie EnsureBoardCertificate selbst (force: false) -- auf dieser Maschine bereits
+        // vorhanden, deshalb ein No-Op; auf einer frischen Maschine ohne CA-Dateien war dieser
+        // Aufruf bisher der fehlende Schritt (GenerateCertificates warf "CA-Dateien fehlen -- vorher
+        // Root-CA erzeugen", ohne dass irgendein Schritt das je selbst getan haette -- s.
+        // BoardCertificateService, das ESP32-Pendant, das das schon immer tat).
+        DotNetCertificateService.EnsureRootCertificateAuthority(ctx.Certificates, ctx.Certificates.RootCaCommonName, force: false);
+
+        var dnsHostnames = DotNetCertificateService.ResolveSanDnsEntries(ctx.Certificates.SanDnsEntries, snapshot.Hostname);
 
         // Single RSA-2048 leaf, shared by both the OPC UA server (SecurityPolicy#Basic256Sha256
         // mandates RSA, see the OPC UA security project notes) and the HTTPS webserver. A second,
@@ -90,11 +74,11 @@ public static class Stm32BoardProvisioningService
         // APPLICATION_URI constant exactly (Part 6 requires the URI SAN to equal the server's
         // actual ApplicationDescription.applicationUri).
         var certFiles = DotNetCertificateService.EnsureBoardCertificate(
-            request.Certificates,
+            ctx.Certificates,
             snapshot.Hostname,
             boardDir,
-            request.Force,
-            ipAddress: request.Certificates.SanIpAddress,
+            force,
+            ipAddress: ctx.Certificates.SanIpAddress,
             dnsHostnames: dnsHostnames,
             applicationUri: "urn:factory-control-unit:opcua-native");
 
@@ -106,24 +90,24 @@ public static class Stm32BoardProvisioningService
         // serverCertificate), so a client can build a complete trust chain without a separate
         // out-of-band CA fetch. Found necessary via live UAExpert testing 2026-08-19
         // (BadCertificateChainIncomplete when only the leaf was sent).
-        var caCertDer = DotNetCertificateService.ConvertPemToDer(request.Certificates.CaCertPath, "cert");
+        var caCertDer = DotNetCertificateService.ConvertPemToDer(ctx.Certificates.CaCertPath, "cert");
 
         File.WriteAllBytes(Path.Combine(generatedDir, "device_certificate.der"), certDer);
         File.WriteAllBytes(Path.Combine(generatedDir, "device_key.der"), keyDer);
         File.WriteAllBytes(Path.Combine(generatedDir, "root_ca.der"), caCertDer);
         File.WriteAllText(
-            CertificateInfoPath(request.BoardStorage, boardId),
+            CertificateInfoPath(ctx.BoardStorage, boardId),
             JsonSerializer.Serialize(certInfo, JsonDefaults.Pretty) + "\n");
 
         Console.WriteLine($"Zertifikate aktualisiert: {generatedDir}");
     }
 
-    public static void GenerateDeviceArtifacts(GenerateDeviceArtifactsRequest request)
+    public static void GenerateDeviceArtifacts(IBuildContextStm32 ctx)
     {
-        var boardId = BoardArchiveContext.RequireBoardId(request.ExplicitBoardId, request.BoardIdCacheFile, "ReadHardwareIds");
-        var snapshot = ReadHardwareSnapshot(request.BoardStorage, boardId);
-        var certInfo = ReadCertificateInfo(request.BoardStorage, boardId);
-        Directory.CreateDirectory(request.CoreGeneratedDir);
+        var boardId = ctx.BoardUid;
+        var snapshot = ReadHardwareSnapshot(ctx.BoardStorage, boardId);
+        var certInfo = ReadCertificateInfo(ctx.BoardStorage, boardId);
+        Directory.CreateDirectory(ctx.FirmwareGeneratedDir);
 
         var deviceIds = new DeviceIdentity(
             snapshot.Hostname,
@@ -133,25 +117,25 @@ public static class Stm32BoardProvisioningService
             snapshot.BoardName,
             certInfo);
 
-        File.WriteAllText(Path.Combine(request.CoreGeneratedDir, "device_ids.hh"), RenderDeviceIdsHh(
-            snapshot.Hostname,
-            snapshot.ChipUidWords,
-            snapshot.UsbNcmMacBytes,
-            snapshot.EthMacBytes));
-        File.WriteAllText(Path.Combine(request.CoreGeneratedDir, "device-ids.json"), JsonSerializer.Serialize(deviceIds, JsonDefaults.Pretty) + "\n");
+        // hh und JSON werden aus DENSELBEN snapshot/certInfo-Objekten gerendert (keine zwei separat
+        // konstruierten Sichten mehr) und tragen dadurch denselben Feldumfang -- device_ids.hh
+        // bekam vorher weder BoardName noch Zertifikatsinfo, obwohl beides bereits fuer die JSON-
+        // Seite vorlag.
+        File.WriteAllText(Path.Combine(ctx.FirmwareGeneratedDir, "device_ids.hh"), RenderDeviceIdsHh(snapshot, certInfo));
+        File.WriteAllText(Path.Combine(ctx.FirmwareGeneratedDir, "device-ids.json"), JsonSerializer.Serialize(deviceIds, JsonDefaults.Pretty) + "\n");
 
         // board_info.json (Board-Archiv-Root) unveraendert ins Projekt spiegeln -- einzige Ausnahme
         // hier: persistenter Zustand, keine Ableitung, keine eigene schmalere Projektionsdatei mehr
         // (frueher board-variant.json/BoardVariant). CMakeLists.txt liest boardTypeName direkt aus
         // dieser Kopie. Existiert board_info.json noch nicht (Board noch nie erfolgreich geflasht),
         // wird uebersprungen.
-        var boardJsonPath = BoardStateStore.BoardJsonPath(request.BoardStorage, boardId);
+        var boardJsonPath = BoardStateStore.BoardJsonPath(ctx.BoardStorage, boardId);
         if (File.Exists(boardJsonPath))
         {
-            File.Copy(boardJsonPath, Path.Combine(request.CoreGeneratedDir, "board_info.json"), overwrite: true);
+            File.Copy(boardJsonPath, Path.Combine(ctx.FirmwareGeneratedDir, "board_info.json"), overwrite: true);
         }
 
-        Console.WriteLine($"Geschrieben: {request.CoreGeneratedDir} (device_ids.hh, device-ids.json, board_info.json)");
+        Console.WriteLine($"Geschrieben: {ctx.FirmwareGeneratedDir} (device_ids.hh, device-ids.json, board_info.json)");
     }
 
     private static HardwareIdentitySnapshot ReadHardwareSnapshot(IBoardsDirectoryOptions boardStorage, string boardId)
@@ -164,16 +148,6 @@ public static class Stm32BoardProvisioningService
 
         return JsonSerializer.Deserialize<HardwareIdentitySnapshot>(File.ReadAllText(path), JsonDefaults.Compact)
             ?? throw new InvalidOperationException($"{path} konnte nicht gelesen werden.");
-    }
-
-    private static IReadOnlyList<string> ResolveSanDnsEntries(IReadOnlyList<string> configuredEntries, string hostname)
-    {
-        return configuredEntries
-            .Select(entry => (entry ?? string.Empty).Trim())
-            .Where(entry => entry.Length > 0)
-            .Select(entry => entry.Replace("{hostname}", hostname, StringComparison.OrdinalIgnoreCase))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
     }
 
     private static CertificateInfo ReadCertificateInfo(IBoardsDirectoryOptions boardStorage, string boardId)
@@ -189,10 +163,12 @@ public static class Stm32BoardProvisioningService
         return new CertificateInfo(info.Issuer, info.IssuedAtEpoch, info.ValidUntilEpoch);
     }
 
-    private static string RenderDeviceIdsHh(string hostname, uint[] words, byte[] netMac, byte[] ethMac)
+    private static string RenderDeviceIdsHh(HardwareIdentitySnapshot snapshot, CertificateInfo cert)
     {
-        var (w0, w1, w2) = (words[0], words[1], words[2]);
+        var (w0, w1, w2) = (snapshot.ChipUidWords[0], snapshot.ChipUidWords[1], snapshot.ChipUidWords[2]);
         var serialString = string.Concat(w0.ToString("X8"), w1.ToString("X8"), w2.ToString("X8"));
+        var netMac = snapshot.UsbNcmMacBytes;
+        var ethMac = snapshot.EthMacBytes;
         var netMacString = string.Concat(netMac.Select(Stm32HardwareIdentityService.ToHex2));
         var netMacInit = string.Join(", ", netMac.Select(b => $"0x{Stm32HardwareIdentityService.ToHex2(b)}"));
         var ethMacInit = string.Join(", ", ethMac.Select(b => $"0x{Stm32HardwareIdentityService.ToHex2(b)}"));
@@ -207,7 +183,8 @@ public static class Stm32BoardProvisioningService
             #include <stdint.h>
             #define DEVICE_IDS_CONST static const
             #endif
-            DEVICE_IDS_CONST char DEVICE_HOSTNAME[] = "{{hostname}}";
+            DEVICE_IDS_CONST char DEVICE_HOSTNAME[] = "{{snapshot.Hostname}}";
+            DEVICE_IDS_CONST char DEVICE_BOARD_NAME[] = "{{snapshot.BoardName}}";
             DEVICE_IDS_CONST uint32_t DEVICE_CHIP_UID_W0 = 0x{{w0.ToString("X8")}};
             DEVICE_IDS_CONST uint32_t DEVICE_CHIP_UID_W1 = 0x{{w1.ToString("X8")}};
             DEVICE_IDS_CONST uint32_t DEVICE_CHIP_UID_W2 = 0x{{w2.ToString("X8")}};
@@ -215,6 +192,9 @@ public static class Stm32BoardProvisioningService
             DEVICE_IDS_CONST uint8_t DEVICE_USB_NCM_MAC[6] = {{{netMacInit}}};
             DEVICE_IDS_CONST char DEVICE_USB_NCM_MAC_STRING[] = "{{netMacString}}";
             DEVICE_IDS_CONST uint8_t DEVICE_ETH_MAC[6] = {{{ethMacInit}}};
+            DEVICE_IDS_CONST char DEVICE_CERT_ISSUER[] = "{{cert.Issuer}}";
+            DEVICE_IDS_CONST int64_t DEVICE_CERT_ISSUED_AT_EPOCH = {{cert.IssuedAtEpoch}};
+            DEVICE_IDS_CONST int64_t DEVICE_CERT_VALID_UNTIL_EPOCH = {{cert.ValidUntilEpoch}};
             #undef DEVICE_IDS_CONST
 
             """;

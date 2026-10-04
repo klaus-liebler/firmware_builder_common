@@ -1,6 +1,6 @@
 using System.Text.RegularExpressions;
 
-namespace FirmwareBuilder.Common;
+namespace FirmwareBuilder.Common.Stm32;
 
 public sealed record Stm32UidReadResult(string Uid, uint[] Words);
 
@@ -11,7 +11,11 @@ public sealed record Stm32HardwareIdentity(
     byte[] UsbNcmMac,
     byte[] EthMac)
 {
-    public string BoardId => $"{ShortId}_{ChipUid.ToLowerInvariant()}";
+    // Reine Funktion von ChipId, dieselbe Formel wie bei ESP32 (s. ChipId.FormatBoardUid) -- der
+    // Umweg ueber FromChipUidHex/ToBoardUid statt weiterhin "{ShortId}_{ChipUid}" von Hand zu
+    // bauen, ist hier ein No-Op (STM32s 96 Bit sind exakt 3 volle Woerter, s. ChipIdStm32.ToBoardUid-
+    // Kommentar), macht aber den gemeinsamen Code-Pfad tatsaechlich gemeinsam.
+    public string BoardId => ChipIdStm32.FromChipUidHex(ChipUid).ToBoardUid();
 }
 
 public static class Stm32HardwareIdentityService

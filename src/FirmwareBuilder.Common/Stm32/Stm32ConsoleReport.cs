@@ -1,4 +1,4 @@
-namespace FirmwareBuilder.Common;
+namespace FirmwareBuilder.Common.Stm32;
 
 // Prozessorspezifischer Aufruf in die Buildercommons (s. BuilderConsoleReport.WriteBoardInfo) --
 // ergaenzt den generischen Kern um den Live-Hardware-Vergleich (STM32_Programmer_CLI), als Daten

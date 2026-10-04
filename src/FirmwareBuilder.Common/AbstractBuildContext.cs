@@ -57,6 +57,7 @@ public abstract class AbstractBuildContext : IBuildContext
     protected abstract IBuilderAppSettings Settings { get; }
     public string CertsDir => Settings.Certificates.CertsDir;
     public string BoardsDir => Settings.BoardStorage.BoardsDir;
+    public IBoardsDirectoryOptions BoardStorage => Settings.BoardStorage;
     public ICertificateAuthorityOptions Certificates => Settings.Certificates;
 
     // --- Ab hier projektspezifisch, keine sinnvolle gemeinsame Ableitung moeglich ---

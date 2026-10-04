@@ -2,10 +2,7 @@ namespace FirmwareBuilder.Common;
 
 // Zentralisierte, konkrete Implementierung von ICertificateAuthorityOptions -- vorher in beiden
 // Projekten (sensact_firmware, firmware_factory_control_unit) unabhaengig als projekt-lokale
-// Klasse dupliziert (dort teils per Adapter, teils direkt implementiert). RootCaCommonName ist
-// NICHT Teil des Interfaces (STM32 braucht es aktuell nicht, s. Stm32BoardProvisioningService --
-// dort wird keine eigene Root-CA erzeugt), steht aber trotzdem hier auf der konkreten Klasse fuer
-// den einheitlichen appsettings.json-Aufbau ueber beide Projekte hinweg.
+// Klasse dupliziert (dort teils per Adapter, teils direkt implementiert).
 public sealed class CertificateAuthorityOptions : ICertificateAuthorityOptions
 {
     public string CertsDir { get; set; } = "";

@@ -12,6 +12,18 @@ public static class DotNetCertificateService
     private const string EcP256 = "EC_P256";
     private const string Rsa2048 = "RSA_2048";
 
+    // Gemeinsame SAN-DNS-Aufloesung fuer BEIDE Chips -- vorher fast identisch dupliziert in
+    // BoardCertificateService (ESP32-Pfad) und Stm32BoardProvisioningService (STM32-Pfad).
+    public static IReadOnlyList<string> ResolveSanDnsEntries(IReadOnlyList<string> configuredEntries, string hostname)
+    {
+        return configuredEntries
+            .Select(entry => (entry ?? string.Empty).Trim())
+            .Where(entry => entry.Length > 0)
+            .Select(entry => entry.Replace("{hostname}", hostname, StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
     public static PemCertificateFiles EnsureRootCertificateAuthority(ICertificateAuthorityOptions options, string commonName, bool force)
     {
         Directory.CreateDirectory(options.CertsDir);

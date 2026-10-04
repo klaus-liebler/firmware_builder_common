@@ -1,4 +1,4 @@
-namespace FirmwareBuilder.Common;
+namespace FirmwareBuilder.Common.Stm32;
 
 public static class CmakeFirmwareBuildService
 {

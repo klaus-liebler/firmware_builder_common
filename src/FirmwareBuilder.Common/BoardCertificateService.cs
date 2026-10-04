@@ -2,14 +2,12 @@ namespace FirmwareBuilder.Common;
 
 // Generisches Board-Zertifikat-Provisioning: lazy-Check, Root-CA sicherstellen, SAN-DNS-Eintraege
 // mit {hostname} substituieren, Board-Zertifikat erzeugen. Weder projekt- noch chip-spezifisch --
-// nimmt die Basis-IBuildContext entgegen (Certificates/BoardArchiveDir sind bereits Teil des
-// Kontexts); rootCaCommonName/hostname/outputFileBaseName bleiben explizite Parameter, weil sie
-// NICHT Teil des generischen IBuildContext-Vertrags sind (RootCaCommonName ist konkrete-Klasse-only,
-// s. CertificateAuthorityOptions; Hostname muss der Aufrufer projektspezifisch aufloesen, z.B.
-// sensact ueber ISensactContext.NodeId).
+// nimmt die Basis-IBuildContext entgegen (Certificates/BoardArchiveDir/RootCaCommonName sind bereits
+// Teil des Kontexts); hostname/outputFileBaseName bleiben explizite Parameter, weil der Aufrufer den
+// Hostnamen projektspezifisch aufloesen muss (z.B. sensact ueber ISensactContext.NodeId).
 public static class BoardCertificateService
 {
-    public static void EnsureBoardCertificate(IBuildContext ctx, string rootCaCommonName, string hostname, string outputFileBaseName, bool force = false)
+    public static void EnsureBoardCertificate(IBuildContext ctx, string hostname, string outputFileBaseName, bool force = false)
     {
         var certDir = Path.Combine(ctx.BoardArchiveDir, "certificates");
         var keyPath = Path.Combine(certDir, $"{outputFileBaseName}.pem.key");
@@ -20,14 +18,9 @@ public static class BoardCertificateService
             return;
         }
 
-        DotNetCertificateService.EnsureRootCertificateAuthority(ctx.Certificates, rootCaCommonName, force: false);
+        DotNetCertificateService.EnsureRootCertificateAuthority(ctx.Certificates, ctx.Certificates.RootCaCommonName, force: false);
 
-        var dnsEntries = ctx.Certificates.SanDnsEntries
-            .Select(e => (e ?? string.Empty).Trim())
-            .Where(e => e.Length > 0)
-            .Select(e => e.Replace("{hostname}", hostname, StringComparison.OrdinalIgnoreCase))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
+        var dnsEntries = DotNetCertificateService.ResolveSanDnsEntries(ctx.Certificates.SanDnsEntries, hostname);
 
         Directory.CreateDirectory(certDir);
         DotNetCertificateService.EnsureBoardCertificate(

@@ -1,6 +1,6 @@
 using System.Text.RegularExpressions;
 
-namespace FirmwareBuilder.Common;
+namespace FirmwareBuilder.Common.Stm32;
 
 public static class Stm32FlashService
 {

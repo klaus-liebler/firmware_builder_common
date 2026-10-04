@@ -80,10 +80,12 @@ public static class BoardStateStore
     // Generischer "lies bestehenden Eintrag oder lege einen mit Default-Werten an, optional
     // last-connected auffrischen"-Ablauf -- ersetzte das vormals in SensactBuildContext.EnsureBoard
     // duplizierte Gegenstueck zu RecordSuccessfulFlash (dort: Flash-Ereignis, hier: reines
-    // Verbinden/Auswaehlen eines Boards, ohne Flash-Historie). Arbeitet bewusst auf einem EXPLIZITEN
-    // Pfad statt boardStorage+boardId, weil sich Verzeichnisnamens-Konventionen je Projekt
-    // unterscheiden (STM32: boardId direkt als Unterordner, s. BoardArchiveContext.BoardArchiveDir;
-    // sensact: "{mac6hex}_{macDezimal}_{mac12hex}", s. BoardPaths.BoardSpecificPath).
+    // Verbinden/Auswaehlen eines Boards, ohne Flash-Historie). Arbeitet auf einem expliziten Pfad
+    // statt boardStorage+boardId, weil dieser Aufruf VOR der fertigen BuildContext-Instanz laeuft
+    // (s. PrepareContextWithRealHardware/PrepareContextWithCommandLineArguments) -- der Aufrufer hat
+    // den Pfad ohnehin schon ueber BoardArchiveContext.BoardArchiveDir/BoardStateStore.BoardJsonPath
+    // aufgeloest. Die Verzeichnisnamens-Konvention selbst (BoardId = ChipId.ToBoardUid()) ist
+    // inzwischen fuer STM32 und ESP32 identisch, s. ChipId.FormatBoardUid.
     public static BoardRecord EnsureBoard(string boardJsonPath, bool updateLastConnected, Func<long, BoardRecord> createDefault)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(boardJsonPath)!);

@@ -1,41 +1,34 @@
 using System.Text.Json;
 
-namespace FirmwareBuilder.Common;
+namespace FirmwareBuilder.Common.Stm32;
 
-public sealed record GitBuildArtifactsRequest(
-    IBoardsDirectoryOptions BoardStorage,
-    string BoardIdCacheFile,
-    string RootDir,
-    string CoreGeneratedDir,
-    string WebGeneratedDir,
-    string DefaultBoardTypeName,
-    int FirmwareVersionMajor,
-    int FirmwareVersionMinor,
-    int FirmwareVersionPatch,
-    string? ExplicitBoardId);
-
+// STM32-only in der Praxis (sensact_firmware ruft dies nie auf -- generiert seine eigenen
+// TS/C++-Build-Infos anders), deshalb hier unter Stm32/ statt im Wurzelverzeichnis. Nimmt
+// IBuildContextStm32 direkt entgegen (RootDir/FirmwareGeneratedDir/WebGeneratedDir/BoardArchiveDir
+// sind bereits Teil des Kontexts) -- defaultBoardTypeName/FirmwareVersion* bleiben explizite
+// Parameter, weil sie NICHT aus ctx ableitbar sind, solange (Warnfall) noch kein Board-Kontext
+// bekannt ist.
 public static class GitBuildArtifactsService
 {
-    public static void Generate(GitBuildArtifactsRequest request)
+    public static void Generate(IBuildContextStm32 ctx, string defaultBoardTypeName, int firmwareVersionMajor, int firmwareVersionMinor, int firmwareVersionPatch)
     {
-        var info = GitInfoReader.ReadGitInfo(request.RootDir);
-        // device-ids.json liegt jetzt im Projekt (s. Stm32BoardProvisioningService.
-        // GenerateDeviceArtifacts), nicht mehr im Board-Archiv.
-        var deviceIdentity = ReadDeviceIdentity(request.CoreGeneratedDir);
-        var boardName = deviceIdentity?.BoardName ?? request.DefaultBoardTypeName;
+        var info = GitInfoReader.ReadGitInfo(ctx.RootDir);
+        // device-ids.json liegt im Projekt (s. Stm32BoardProvisioningService.GenerateDeviceArtifacts).
+        var deviceIdentity = ReadDeviceIdentity(ctx.FirmwareGeneratedDir);
+        var boardName = deviceIdentity?.BoardName ?? defaultBoardTypeName;
 
         var hhContent = RenderGitConstantsHh(info);
-        var firmwareConstantsContent = RenderFirmwareConstantsHh(request, boardName);
-        var tsContent = RenderBuildInfoTs(info, request, boardName, deviceIdentity);
+        var firmwareConstantsContent = RenderFirmwareConstantsHh(boardName, firmwareVersionMajor, firmwareVersionMinor, firmwareVersionPatch);
+        var tsContent = RenderBuildInfoTs(info, boardName, firmwareVersionMajor, firmwareVersionMinor, firmwareVersionPatch, deviceIdentity);
 
         // gitconstants.hh/firmware_constants.hh/build-info.ts sind reine Ableitung aus Git-Status +
         // device-ids.json -- gehoeren ins Projekt (s. Projektgedaechtnis "generierte Dateien nur im
         // Projekt"), unabhaengig davon, ob ueberhaupt ein Board-Kontext bekannt ist.
-        Directory.CreateDirectory(request.CoreGeneratedDir);
-        Directory.CreateDirectory(request.WebGeneratedDir);
-        File.WriteAllText(Path.Combine(request.CoreGeneratedDir, "gitconstants.hh"), hhContent);
-        File.WriteAllText(Path.Combine(request.CoreGeneratedDir, "firmware_constants.hh"), firmwareConstantsContent);
-        File.WriteAllText(Path.Combine(request.WebGeneratedDir, "build-info.ts"), tsContent);
+        Directory.CreateDirectory(ctx.FirmwareGeneratedDir);
+        Directory.CreateDirectory(ctx.WebGeneratedDir);
+        File.WriteAllText(Path.Combine(ctx.FirmwareGeneratedDir, "gitconstants.hh"), hhContent);
+        File.WriteAllText(Path.Combine(ctx.FirmwareGeneratedDir, "firmware_constants.hh"), firmwareConstantsContent);
+        File.WriteAllText(Path.Combine(ctx.WebGeneratedDir, "build-info.ts"), tsContent);
 
         if (deviceIdentity is null)
         {
@@ -48,19 +41,28 @@ public static class GitBuildArtifactsService
         // FlashFirmwarePipelineService.RecordSuccessfulFlash spaeter gelesen, um Flash-Ereignisse in
         // flash_events.jsonl mit dem Git-Stand zum Flash-Zeitpunkt zu korrelieren -- persistenter
         // Audit-Trail, kein Build-Output.
-        var boardId = BoardArchiveContext.ResolveBoardId(request.ExplicitBoardId, request.BoardIdCacheFile);
+        string? boardId;
+        try
+        {
+            boardId = ctx.BoardUid;
+        }
+        catch (InvalidOperationException)
+        {
+            boardId = null;
+        }
+
         if (boardId is not null)
         {
-            var archiveDir = BoardArchiveContext.BoardGeneratedDir(request.BoardStorage, boardId);
-            Directory.CreateDirectory(archiveDir);
-            File.WriteAllText(Path.Combine(archiveDir, "gitstatus.json"), JsonSerializer.Serialize(info, JsonDefaults.Pretty) + "\n");
+            var archiveGeneratedDir = Path.Combine(ctx.BoardArchiveDir, "generated");
+            Directory.CreateDirectory(archiveGeneratedDir);
+            File.WriteAllText(Path.Combine(archiveGeneratedDir, "gitstatus.json"), JsonSerializer.Serialize(info, JsonDefaults.Pretty) + "\n");
         }
         else
         {
             Console.WriteLine("Warnung: Kein Board-Kontext bekannt -- gitstatus.json wird nicht geschrieben (kein Flash-Event-Abgleich moeglich).");
         }
 
-        Console.WriteLine($"Git-Status ({info.CommitHash}, {info.Branch}, dirty={(info.IsDirty ? "true" : "false")}) -> {request.CoreGeneratedDir} / {request.WebGeneratedDir}.");
+        Console.WriteLine($"Git-Status ({info.CommitHash}, {info.Branch}, dirty={(info.IsDirty ? "true" : "false")}) -> {ctx.FirmwareGeneratedDir} / {ctx.WebGeneratedDir}.");
     }
 
     private static DeviceIdentity? ReadDeviceIdentity(string coreGeneratedDir)
@@ -124,7 +126,7 @@ public static class GitBuildArtifactsService
             """;
     }
 
-    private static string RenderFirmwareConstantsHh(GitBuildArtifactsRequest request, string boardName)
+    private static string RenderFirmwareConstantsHh(string boardName, int major, int minor, int patch)
     {
         return $$"""
             #pragma once
@@ -133,16 +135,16 @@ public static class GitBuildArtifactsService
             #include <string_view>
 
             constexpr std::string_view BOARD_NAME = "{{EscapeCppString(boardName)}}";
-            constexpr uint16_t FW_VERSION_MAJOR = {{request.FirmwareVersionMajor}};
-            constexpr uint16_t FW_VERSION_MINOR = {{request.FirmwareVersionMinor}};
-            constexpr uint16_t FW_VERSION_PATCH = {{request.FirmwareVersionPatch}};
+            constexpr uint16_t FW_VERSION_MAJOR = {{major}};
+            constexpr uint16_t FW_VERSION_MINOR = {{minor}};
+            constexpr uint16_t FW_VERSION_PATCH = {{patch}};
 
             """;
     }
 
     private static string TsStringLiteral(string s) => JsonSerializer.Serialize(s, JsonDefaults.Compact);
 
-    private static string RenderBuildInfoTs(GitInfo info, GitBuildArtifactsRequest request, string boardName, DeviceIdentity? deviceIdentity)
+    private static string RenderBuildInfoTs(GitInfo info, string boardName, int major, int minor, int patch, DeviceIdentity? deviceIdentity)
     {
         return $$"""
             // GENERIERT von FirmwareBuilder.Common/GitBuildArtifactsService.cs -- nicht von Hand editieren.
@@ -156,9 +158,9 @@ public static class GitBuildArtifactsService
             export const BUILD_TIMESTAMP_EPOCH = {{info.BuildTimestampEpoch}};
 
             export const BOARD_NAME = {{TsStringLiteral(boardName)}};
-            export const FW_VERSION_MAJOR = {{request.FirmwareVersionMajor}};
-            export const FW_VERSION_MINOR = {{request.FirmwareVersionMinor}};
-            export const FW_VERSION_PATCH = {{request.FirmwareVersionPatch}};
+            export const FW_VERSION_MAJOR = {{major}};
+            export const FW_VERSION_MINOR = {{minor}};
+            export const FW_VERSION_PATCH = {{patch}};
 
             export const DEVICE_HOSTNAME = {{TsStringLiteral(deviceIdentity?.Hostname ?? "")}};
             export const DEVICE_CHIP_UID = {{TsStringLiteral(deviceIdentity?.ChipUid ?? "")}};
