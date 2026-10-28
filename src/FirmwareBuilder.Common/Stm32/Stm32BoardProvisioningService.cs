@@ -45,7 +45,10 @@ public static class Stm32BoardProvisioningService
         return new HardwareIdsResult(hw.BoardId, hw.Hostname, hw.ChipUid);
     }
 
-    public static void GenerateCertificates(IBuildContextStm32 ctx, bool force)
+    // httpsEcLeaf: additionally issue an EC_P256 leaf for HTTPS (device_https_certificate.der/
+    // device_https_key.der) next to the RSA-2048 OPC UA leaf below. Firmware on rtoos needs it:
+    // its TLS server offers ECDSA only, RSA exists there for OPC UA alone.
+    public static void GenerateCertificates(IBuildContextStm32 ctx, bool force, bool httpsEcLeaf = false)
     {
         var boardId = ctx.BoardUid;
         var snapshot = ReadHardwareSnapshot(ctx.BoardStorage, boardId);
@@ -70,7 +73,8 @@ public static class Stm32BoardProvisioningService
         // on this no-PKA board (STM32H563) -- that theory was wrong: the actual cause was RSA
         // running in an unoptimized Debug build (no compiler-level speedup, still no hardware PKA),
         // not RSA-vs-EC per se; Release builds handle the shared RSA cert fine on both servers.
-        // Reverted back to one shared cert. applicationUri MUST match service_structs.cpp's
+        // Reverted back to one shared cert -- unless httpsEcLeaf: firmware on rtoos (ECDSA-only
+        // TLS) gets its own EC_P256 HTTPS leaf, see the end of this method. applicationUri MUST match service_structs.cpp's
         // APPLICATION_URI constant exactly (Part 6 requires the URI SAN to equal the server's
         // actual ApplicationDescription.applicationUri).
         var certFiles = DotNetCertificateService.EnsureBoardCertificate(
@@ -95,6 +99,22 @@ public static class Stm32BoardProvisioningService
         File.WriteAllBytes(Path.Combine(generatedDir, "device_certificate.der"), certDer);
         File.WriteAllBytes(Path.Combine(generatedDir, "device_key.der"), keyDer);
         File.WriteAllBytes(Path.Combine(generatedDir, "root_ca.der"), caCertDer);
+        if (httpsEcLeaf)
+        {
+            var httpsFiles = DotNetCertificateService.EnsureBoardCertificate(
+                ctx.Certificates,
+                snapshot.Hostname,
+                boardDir,
+                force,
+                ipAddress: ctx.Certificates.SanIpAddress,
+                dnsHostnames: dnsHostnames,
+                outputFileBaseName: $"{snapshot.Hostname}_https",
+                keyAlgorithmOverride: "EC_P256");
+            File.WriteAllBytes(Path.Combine(generatedDir, "device_https_certificate.der"),
+                DotNetCertificateService.ConvertPemToDer(httpsFiles.CertificatePath, "cert"));
+            File.WriteAllBytes(Path.Combine(generatedDir, "device_https_key.der"),
+                DotNetCertificateService.ConvertPemToDer(httpsFiles.PrivateKeyPath, "key"));
+        }
         File.WriteAllText(
             CertificateInfoPath(ctx.BoardStorage, boardId),
             JsonSerializer.Serialize(certInfo, JsonDefaults.Pretty) + "\n");
