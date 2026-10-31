@@ -8,6 +8,7 @@ public sealed record UniversalRegisterAccessBuildRequest(
     string CoreGeneratedDir,
     string WebGeneratedDir,
     IReadOnlyList<string> Sources,
+    string OpcUaRootName,             // OPC UA-Objekt unter Objects, das die Register-Ordner enthaelt
     string? DocsGeneratedDir = null); // gesetzt -> zusaetzlich modbus-registers.md (Register-Uebersicht)
 
 // Generierte Register-Access-Dateien sind reine, deterministische Ableitung aus Schema-Quellen --
@@ -22,10 +23,12 @@ public static class UniversalRegisterAccessBuildService
         Directory.CreateDirectory(request.CoreGeneratedDir);
         Directory.CreateDirectory(request.WebGeneratedDir);
 
-        SchemaCompiler.Compile(files,
-            Path.Combine(request.CoreGeneratedDir, "modbus_registers_generated.hh"),
+        // rtoos: register_map.hpp (Adressen, Tabellengroessen, typisierte RegisterBank-Zugriffe) und
+        // register_map_opcua.hpp (Knoten unter Objects/<OpcUaRootName>, an die Register gebunden).
+        SchemaCompiler.Compile(files, request.OpcUaRootName,
+            Path.Combine(request.CoreGeneratedDir, "register_map.hpp"),
             Path.Combine(request.WebGeneratedDir, "register-map.ts"),
-            Path.Combine(request.CoreGeneratedDir, "opcua_registers_generated.hh"),
+            Path.Combine(request.CoreGeneratedDir, "register_map_opcua.hpp"),
             request.DocsGeneratedDir is null ? null : Path.Combine(request.DocsGeneratedDir, "modbus-registers.md"));
 
         var sourcesLabel = request.Sources.Count > 0 ? string.Join(", ", request.Sources) : request.DefaultSchemaDirectory;
