@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text.Json;
 
 namespace FirmwareBuilder.Common.Stm32;
@@ -48,7 +49,11 @@ public static class Stm32BoardProvisioningService
     // httpsEcLeaf: additionally issue an EC_P256 leaf for HTTPS (device_https_certificate.der/
     // device_https_key.der) next to the RSA-2048 OPC UA leaf below. Firmware on rtoos needs it:
     // its TLS server offers ECDSA only, RSA exists there for OPC UA alone.
-    public static void GenerateCertificates(IBuildContextStm32 ctx, bool force, bool httpsEcLeaf = false)
+    // sshHostKey: an ECDSA P-256 SSH host key per board (rtoos log terminal), created once and
+    // kept in the board archive -- never renewed, not even with force: clients pin it in
+    // known_hosts. Copied to generated/ssh_host_key.der (SEC1 DER).
+    public static void GenerateCertificates(IBuildContextStm32 ctx, bool force, bool httpsEcLeaf = false,
+        bool sshHostKey = false)
     {
         var boardId = ctx.BoardUid;
         var snapshot = ReadHardwareSnapshot(ctx.BoardStorage, boardId);
@@ -114,6 +119,17 @@ public static class Stm32BoardProvisioningService
                 DotNetCertificateService.ConvertPemToDer(httpsFiles.CertificatePath, "cert"));
             File.WriteAllBytes(Path.Combine(generatedDir, "device_https_key.der"),
                 DotNetCertificateService.ConvertPemToDer(httpsFiles.PrivateKeyPath, "key"));
+        }
+        if (sshHostKey)
+        {
+            var sshKeyPath = Path.Combine(boardDir, "ssh_host_key.der");
+            if (!File.Exists(sshKeyPath))
+            {
+                using var ecdsa = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+                File.WriteAllBytes(sshKeyPath, ecdsa.ExportECPrivateKey());
+                Console.WriteLine($"SSH-Host-Key erzeugt: {sshKeyPath}");
+            }
+            File.Copy(sshKeyPath, Path.Combine(generatedDir, "ssh_host_key.der"), overwrite: true);
         }
         File.WriteAllText(
             CertificateInfoPath(ctx.BoardStorage, boardId),
