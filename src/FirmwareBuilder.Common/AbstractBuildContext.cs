@@ -40,7 +40,8 @@ public abstract class AbstractBuildContext : IBuildContext
     public string RootDir => RootDirStatic;
     public string FirmwareRoot => RootDirStatic;
     public string WebRoot => WebDirStatic;
-    public string BestBinaryBuffersSchemaDir => BestBinaryBuffersSchemaDirStatic;
+    // virtual: ein Projekt mit anderer Ablage (z.B. schema/best_binary_buffers) ueberschreibt sie
+    public virtual string BestBinaryBuffersSchemaDir => BestBinaryBuffersSchemaDirStatic;
     public string BoardInfoJsonPath => BoardInfoJsonPathStatic;
     public GitInfo Git => GitInfoReader.ReadGitInfo(RootDir);
 
