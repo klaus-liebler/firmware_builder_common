@@ -20,15 +20,47 @@ public sealed record Stm32HardwareIdentity(
 
 public static class Stm32HardwareIdentityService
 {
-    private const string UidAddress = "0x08FFF800";
+    // Die 96-Bit-Unique-ID liegt je nach Chip woanders. Welcher Chip dran ist, meldet
+    // STM32_Programmer_CLI beim Verbinden als "Device ID" (DBGMCU_IDCODE.DEV_ID; die Werte sind die
+    // seiner Data_Base/STM32_Prog_DB_0x*.xml):
+    //   0x484 STM32H56x/573: UID_BASE 0x08FFF800 (RM0481)
+    //   0x450 STM32H742/743/750/753: UID_BASE 0x1FF1E800 (ST stm32h743xx.h)
+    private static readonly Dictionary<int, string> UidAddressByDeviceId = new()
+    {
+        [0x484] = "0x08FFF800",
+        [0x450] = "0x1FF1E800",
+    };
 
     public static Stm32UidReadResult ReadUniqueId(IStm32ProgrammerOptions options, string workingDirectory)
     {
         var cliPath = options.ResolveStm32ProgrammerCli();
-        string output;
+        var deviceId = ParseDeviceId(RunProgrammer(cliPath, ["-c", "port=SWD"], workingDirectory));
+        if (!UidAddressByDeviceId.TryGetValue(deviceId, out var uidAddress))
+        {
+            throw new InvalidOperationException(
+                $"Unbekannter Chip (Device ID 0x{deviceId:X3}): keine Unique-ID-Adresse hinterlegt. Bekannt: " +
+                string.Join(", ", UidAddressByDeviceId.Keys.Select(k => $"0x{k:X3}")) + ".");
+        }
+        var output = RunProgrammer(cliPath, ["-c", "port=SWD", "-r32", uidAddress, "12"], workingDirectory);
+        return ParseUniqueId(output, uidAddress);
+    }
+
+    /// <summary>Die Device ID aus der Verbindungsausgabe von STM32_Programmer_CLI ("Device ID   : 0x450").</summary>
+    public static int ParseDeviceId(string output)
+    {
+        var match = Regex.Match(output, @"Device ID\s*:\s*0x([0-9A-Fa-f]+)");
+        if (!match.Success)
+        {
+            throw new InvalidOperationException($"Konnte die Device ID nicht aus der STM32_Programmer_CLI-Ausgabe lesen:\n{output}");
+        }
+        return Convert.ToInt32(match.Groups[1].Value, 16);
+    }
+
+    private static string RunProgrammer(string cliPath, string[] args, string workingDirectory)
+    {
         try
         {
-            output = ProcessRunner.Run(cliPath, ["-c", "port=SWD", "-r32", UidAddress, "12"], workingDirectory);
+            return ProcessRunner.Run(cliPath, args, workingDirectory);
         }
         catch (ProcessException ex)
         {
@@ -48,10 +80,14 @@ public static class Stm32HardwareIdentityService
                 "beenden und erneut versuchen).\n" +
                 (details.Length > 0 ? $"Ausgabe des Tools:\n{details}" : ""), ex);
         }
+    }
 
+    /// <summary>Die drei UID-Woerter aus der Ausgabe von "-r32 &lt;uidAddress&gt; 12".</summary>
+    public static Stm32UidReadResult ParseUniqueId(string output, string uidAddress)
+    {
         var match = Regex.Match(
             output,
-            $@"{Regex.Escape(UidAddress)}\s*:\s*([0-9A-Fa-f]{{8}})\s+([0-9A-Fa-f]{{8}})\s+([0-9A-Fa-f]{{8}})");
+            $@"{Regex.Escape(uidAddress)}\s*:\s*([0-9A-Fa-f]{{8}})\s+([0-9A-Fa-f]{{8}})\s+([0-9A-Fa-f]{{8}})");
         if (!match.Success)
         {
             throw new InvalidOperationException($"Konnte Unique-ID nicht aus STM32_Programmer_CLI-Ausgabe lesen:\n{output}");

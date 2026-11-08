@@ -2,7 +2,7 @@ namespace FirmwareBuilder.Common.Stm32;
 
 public static class CmakeFirmwareBuildService
 {
-    public static readonly string[] ValidPresets = ["Debug", "Release", "Debug-Rev1", "Release-Rev1"];
+    public static readonly string[] ValidPresets = ["Debug", "Release", "Debug-Rev1", "Release-Rev1", "Debug-Rev3", "Release-Rev3"];
 
     public static bool IsValidPreset(string preset) => ValidPresets.Contains(preset);
 
