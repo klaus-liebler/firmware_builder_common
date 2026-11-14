@@ -25,18 +25,22 @@ public abstract class Stm32BuildContextBase : AbstractBuildContext, IBuildContex
 
     public abstract string BoardIdCacheFile { get; }
 
-    // Release ist Default, nicht Debug: SecurityPolicy#Basic256Sha256's Software-RSA-2048 (kein
-    // Hardware-PKA auf diesem STM32H563) verursacht in einem unoptimierten Debug-Build 13-17s
-    // ThreadX-Thread-Starvation-Stalls pro Handshake -- das Board wirkt dann fuer jeden, der es
-    // testet, wie haengengeblieben. --preset Debug explizit angeben, wenn wirklich gesteppt wird.
+    // Ohne --preset: DefaultPreset der Ableitung (Projekt). Release-artig, nicht Debug:
+    // SecurityPolicy#Basic256Sha256's Software-RSA-2048 (kein Hardware-PKA auf dem STM32H563)
+    // verursacht in einem unoptimierten Debug-Build 13-17s Thread-Stalls pro Handshake -- das Board
+    // wirkt dann fuer jeden, der es testet, wie haengengeblieben. Ein Debug-Preset explizit angeben,
+    // wenn wirklich gesteppt wird. Gueltig ist jedes nicht-versteckte configurePreset aus
+    // CMakePresets.json (CmakeFirmwareBuildService.ConfigurePresets).
+    protected virtual string DefaultPreset => "Release";
+
     public string Preset
     {
         get
         {
-            var preset = Cli.GetOptionalArgValue(Args, "--preset") ?? "Release";
-            if (!CmakeFirmwareBuildService.IsValidPreset(preset))
+            var preset = Cli.GetOptionalArgValue(Args, "--preset") ?? DefaultPreset;
+            if (!CmakeFirmwareBuildService.IsValidPreset(RootDir, preset))
             {
-                throw new ArgumentException($"Unbekanntes Preset \"{preset}\". Gueltig: {string.Join(", ", CmakeFirmwareBuildService.ValidPresets)}.");
+                throw new ArgumentException($"Unbekanntes Preset \"{preset}\". Gueltig: {string.Join(", ", CmakeFirmwareBuildService.ConfigurePresets(RootDir))}.");
             }
             return preset;
         }
