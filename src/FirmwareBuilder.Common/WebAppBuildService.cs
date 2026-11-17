@@ -9,15 +9,13 @@ public static class WebAppBuildService
 {
     // Nimmt IBuildContext direkt entgegen -- WebRoot ist bereits Teil des Kontexts; viteArgs/
     // expectedOutputFile bleiben explizite Parameter (projekteigene vite-Konvention, s.o.).
-    public static void Run(IBuildContext ctx, IReadOnlyList<string> viteArgs, string expectedOutputFile)
+    // webDir: eine andere Web-App des Projekts als ctx.WebRoot (z.B. eine zweite, rein statische App).
+    public static void Run(IBuildContext ctx, IReadOnlyList<string> viteArgs, string expectedOutputFile, string? webDir = null)
     {
-        var webDir = ctx.WebRoot;
-        var viteEntry = Path.Combine(webDir, "node_modules", "vite", "bin", "vite.js");
-        if (!File.Exists(viteEntry))
-        {
-            throw new InvalidOperationException(
-                $"Vite nicht gefunden unter {viteEntry} -- zuerst \"npm install\" im web/-Verzeichnis ausfuehren.");
-        }
+        webDir ??= ctx.WebRoot;
+        var viteEntry = FindVite(webDir) ?? throw new InvalidOperationException(
+            $"Vite nicht gefunden (node_modules/vite unter {webDir} oder einem Elternverzeichnis) -- zuerst \"npm install\" ausfuehren " +
+            "(bei npm-Workspaces im Workspace-Root).");
 
         ProcessRunner.RunInherit("node", [viteEntry, "build", webDir, .. viteArgs], webDir);
 
@@ -34,5 +32,20 @@ public static class WebAppBuildService
         }
         var size = new FileInfo(expectedOutputFile).Length;
         Console.WriteLine($"Web-App gebaut, {expectedOutputFile} geschrieben ({size} Bytes = {size / 1024.0:F2} kiB).");
+    }
+
+    // Wie Nodes eigene Modulaufloesung: node_modules im Verzeichnis selbst oder in einem Elternverzeichnis --
+    // bei npm-Workspaces liegt vite im Workspace-Root (hochgezogen), nicht unter der einzelnen App.
+    private static string? FindVite(string webDir)
+    {
+        for (var dir = new DirectoryInfo(Path.GetFullPath(webDir)); dir is not null; dir = dir.Parent)
+        {
+            var candidate = Path.Combine(dir.FullName, "node_modules", "vite", "bin", "vite.js");
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+        return null;
     }
 }
