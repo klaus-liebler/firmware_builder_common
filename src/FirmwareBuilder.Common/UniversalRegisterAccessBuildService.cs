@@ -1,4 +1,5 @@
 using UniversalRegisterAccess;
+using UniversalRegisterAccess.Generators;
 
 namespace FirmwareBuilder.Common;
 
@@ -9,7 +10,8 @@ public sealed record UniversalRegisterAccessBuildRequest(
     string WebGeneratedDir,
     IReadOnlyList<string> Sources,
     string OpcUaRootName,             // OPC UA-Objekt unter Objects, das die Register-Ordner enthaelt
-    string? DocsGeneratedDir = null); // gesetzt -> zusaetzlich modbus-registers.md (Register-Uebersicht)
+    string? DocsGeneratedDir = null,  // gesetzt -> zusaetzlich modbus-registers.md (Register-Uebersicht)
+    EtherCatOptions? EtherCat = null); // gesetzt -> zusaetzlich register_map_ethercat.hpp (CoE-Objektverzeichnis)
 
 // Generierte Register-Access-Dateien sind reine, deterministische Ableitung aus Schema-Quellen --
 // gehoeren ins Projekt (Core/generated, web/generated), nicht ins Board-Archiv (s. Projektgedaechtnis
@@ -29,7 +31,9 @@ public static class UniversalRegisterAccessBuildService
             Path.Combine(request.CoreGeneratedDir, "register_map.hpp"),
             Path.Combine(request.WebGeneratedDir, "register-map.ts"),
             Path.Combine(request.CoreGeneratedDir, "register_map_opcua.hpp"),
-            request.DocsGeneratedDir is null ? null : Path.Combine(request.DocsGeneratedDir, "modbus-registers.md"));
+            request.DocsGeneratedDir is null ? null : Path.Combine(request.DocsGeneratedDir, "modbus-registers.md"),
+            request.EtherCat,
+            Path.Combine(request.CoreGeneratedDir, "register_map_ethercat.hpp"));
 
         var sourcesLabel = request.Sources.Count > 0 ? string.Join(", ", request.Sources) : request.DefaultSchemaDirectory;
         var docsLabel = request.DocsGeneratedDir is null ? "" : $" / {request.DocsGeneratedDir}";
